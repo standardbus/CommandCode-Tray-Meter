@@ -1,5 +1,5 @@
 {
-  "$comment": "Copy this file to config.json and paste your Provider-API key into apiKey. Create and manage the key at https://commandcode.ai/studio/provider . config.json must never be committed.",
+  "$comment": "Copy this file to config.json and paste your Provider-API key into apiKey. Create and manage the key at https://commandcode.ai/settings/keys . config.json must never be committed.",
 
   "apiKey": "",
 

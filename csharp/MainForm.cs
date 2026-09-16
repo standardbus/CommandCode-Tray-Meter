@@ -113,7 +113,7 @@ namespace CommandCodeMonitor
             menu.Items.Add("Open config.json (" + Path.GetFileName(config.SourcePath) + ")", null,
                 (sender, args) => OpenConfig());
             menu.Items.Add("Command Code settings (Studio)", null,
-                (sender, args) => Process.Start("https://commandcode.ai/studio/provider"));
+                (sender, args) => Process.Start("https://commandcode.ai/settings/keys"));
             _autostartItem = new ToolStripMenuItem("Start with Windows", null, (sender, args) => ToggleAutostart());
             _autostartItem.Checked = IsAutostartEnabled();
             menu.Items.Add(_autostartItem);

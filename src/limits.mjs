@@ -334,7 +334,7 @@ export function resolveCredential(config = {}, options = {}) {
     error: STATUS.AUTH_NEEDED,
     source: "none",
     message:
-      "No Command Code credentials. Paste a Provider-API key into config.json (commandcode.ai/studio/provider) or set COMMANDCODE_API_KEY.",
+      "No Command Code credentials. Paste a Provider-API key into config.json (commandcode.ai/settings/keys) or set COMMANDCODE_API_KEY.",
   };
 }
 

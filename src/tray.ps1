@@ -1119,7 +1119,7 @@ function Add-MenuItem {
   if (Test-Path $ConfigPath) { Start-Process notepad.exe $ConfigPath } else { Write-TrayError "config.json missing" }
 })
 [void](Add-MenuItem -Text "Command Code settings (Studio)" -OnClick {
-  Start-Process "https://commandcode.ai/studio/provider"
+  Start-Process "https://commandcode.ai/settings/keys"
 })
 $script:AutostartItem = Add-MenuItem -Text "Start with Windows" -OnClick {
   $installer = Join-Path $ProjectRoot "scripts\install-autostart.ps1"

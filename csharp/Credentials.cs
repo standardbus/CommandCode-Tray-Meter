@@ -64,7 +64,7 @@ namespace CommandCodeMonitor
             else
             {
                 credential.Message =
-                    "No Command Code credentials. Paste a Provider-API key into config.json (commandcode.ai/studio/provider) or set COMMANDCODE_API_KEY.";
+                    "No Command Code credentials. Paste a Provider-API key into config.json (commandcode.ai/settings/keys) or set COMMANDCODE_API_KEY.";
             }
             return credential;
         }
