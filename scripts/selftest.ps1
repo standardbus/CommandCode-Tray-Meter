@@ -1,4 +1,4 @@
-﻿# End-to-end environment self-test.
+# End-to-end environment self-test.
 #
 # Checks everything that can be verified without a credential or a network call:
 # runtime detection, config readability, credential discovery, icon rendering and
@@ -50,7 +50,7 @@ Test-Step "PowerShell 5.1 o superiore" {
   "versione $($PSVersionTable.PSVersion)"
 }
 
-Test-Step "WinForms disponibile" {
+Test-Step "WinForms available" {
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type -AssemblyName System.Drawing
   "System.Windows.Forms caricato"
@@ -58,7 +58,7 @@ Test-Step "WinForms disponibile" {
 
 Test-Step "node.exe raggiungibile" {
   $node = Get-Command node -ErrorAction SilentlyContinue
-  if (-not $node) { throw "node non trovato nel PATH: il monitor funzionerebbe solo in modalita ridotta" }
+  if (-not $node) { throw "node not found in PATH: the monitor would only run in reduced mode" }
   $version = (& $node.Source --version) 2>&1
   "$($node.Source) ($version)"
 }
@@ -71,32 +71,32 @@ Test-Step "modalita STA (richiesta da WinForms)" {
 }
 
 Write-Output ""
-Write-Output "Configurazione e credenziali"
+Write-Output "Configuration and credentials"
 
-Test-Step "config.json leggibile" {
+Test-Step "config.json is readable" {
   if (-not (Test-Path $ConfigPath)) {
-    throw "assente: copia config.example.json in config.json e inserisci la key"
+    throw "missing: copy config.example.json to config.json and paste your key"
   }
   $raw = Get-Content $ConfigPath -Raw -Encoding UTF8
   $null = $raw | ConvertFrom-Json
   "JSON valido"
 }
 
-Test-Step "sorgente credenziale trovata" {
+Test-Step "credential source found" {
   $node = (Get-Command node).Source
   $fetch = Join-Path $root "src\fetch.mjs"
   $out = Join-Path $env:TEMP "cc-selftest-auth.json"
   & $node $fetch --auth-only --config $ConfigPath --out $out | Out-Null
-  if (-not (Test-Path $out)) { throw "fetch.mjs --auth-only non ha prodotto output" }
+  if (-not (Test-Path $out)) { throw "fetch.mjs --auth-only produced no output" }
   $report = (Get-Content $out -Raw -Encoding UTF8) | ConvertFrom-Json
   if (-not $report.hasToken) {
-    throw "nessuna credenziale: $($report.message)"
+    throw "no credentials: $($report.message)"
   }
   "sorgente: $($report.source)"
 }
 
 Write-Output ""
-Write-Output "Interfaccia"
+Write-Output "Interface"
 
 $script:Data = [pscustomobject]@{
   plan = [pscustomobject]@{ id = "selftest" }
@@ -113,7 +113,7 @@ $script:Data = [pscustomobject]@{
 
 . (Join-Path $root "src\tray.ps1") -ConfigPath $ConfigPath -NoSession -SelfTest
 
-Test-Step "icona disegnata a 16x16" {
+Test-Step "icon drawn at 16x16" {
   $icon = New-StatusIcon -FivePercent 40 -WeeklyPercent 24
   try {
     $bitmap = $icon.ToBitmap()
@@ -123,19 +123,19 @@ Test-Step "icona disegnata a 16x16" {
       for ($y = 0; $y -lt $bitmap.Height; $y++) {
         for ($x = 0; $x -lt $bitmap.Width; $x++) { if ($bitmap.GetPixel($x, $y).A -gt 40) { $visible++ } }
       }
-      if ($visible -lt 40) { throw "icona quasi vuota ($visible pixel visibili)" }
-      "$visible pixel visibili"
+      if ($visible -lt 40) { throw "icon nearly empty ($visible visible pixels)" }
+      "$visible visible pixels"
     } finally { $bitmap.Dispose() }
   } finally { $icon.Dispose() }
 }
 
-Test-Step "tooltip entro il limite di Windows" {
+Test-Step "tooltip within the Windows limit" {
   Update-TrayPresentation
-  if ($script:TrayIcon.Text.Length -gt 63) { throw "tooltip di $($script:TrayIcon.Text.Length) caratteri" }
-  "$($script:TrayIcon.Text.Length) caratteri"
+  if ($script:TrayIcon.Text.Length -gt 63) { throw "tooltip is $($script:TrayIcon.Text.Length) characters" }
+  "$($script:TrayIcon.Text.Length) characters"
 }
 
-Test-Step "bolla disegnata senza errori" {
+Test-Step "bubble drawn without errors" {
   $bitmap = [System.Drawing.Bitmap]::new($PanelWidth, $PanelHeight, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
   try {
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
@@ -143,21 +143,21 @@ Test-Step "bolla disegnata senza errori" {
     finally { $graphics.Dispose() }
     # The dark panel background must actually be there.
     $corner = $bitmap.GetPixel(4, 4)
-    if ($corner.ToArgb() -ne $script:ColorPanel.ToArgb()) { throw "sfondo della bolla non disegnato" }
+    if ($corner.ToArgb() -ne $script:ColorPanel.ToArgb()) { throw "the bubble background was not drawn" }
     "${PanelWidth}x${PanelHeight} px"
   } finally { $bitmap.Dispose() }
 }
 
-Test-Step "bolla apribile e chiudibile" {
+Test-Step "bubble can be opened and closed" {
   $script:Popup.Show(([System.Drawing.Point]::new(200, 200)))
   $opened = $script:Popup.Visible
   $script:Popup.Close()
-  if (-not $opened) { throw "la bolla non si e aperta" }
-  "aperta e chiusa"
+  if (-not $opened) { throw "the bubble did not open" }
+  "opened and closed"
 }
 
 Write-Output ""
-Write-Output ("Risultato: {0} ok, {1} falliti, {2} avvisi" -f $script:Passed, $script:Failed, $script:Warnings)
+Write-Output ("Result: {0} ok, {1} failed, {2} warnings" -f $script:Passed, $script:Failed, $script:Warnings)
 
 if ($script:Failed -gt 0) { exit 1 }
 exit 0

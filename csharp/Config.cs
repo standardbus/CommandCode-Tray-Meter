@@ -51,7 +51,7 @@ namespace CommandCodeMonitor
             }
             catch (Exception error)
             {
-                throw new ConfigException("config.json non leggibile: " + error.Message);
+                throw new ConfigException("config.json is not readable: " + error.Message);
             }
 
             object root;
@@ -61,7 +61,7 @@ namespace CommandCodeMonitor
             }
             catch (Exception error)
             {
-                throw new ConfigException("config.json non e JSON valido: " + error.Message);
+                throw new ConfigException("config.json is not valid JSON: " + error.Message);
             }
 
             var apiKey = Json.Text(Json.Get(root, "apiKey"));

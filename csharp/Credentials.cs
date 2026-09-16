@@ -59,12 +59,12 @@ namespace CommandCodeMonitor
             if (sawExpired)
             {
                 credential.Message =
-                    "Accesso Command Code scaduto. Apri il CLI e ripeti l'accesso, oppure incolla una Provider-API key in config.json.";
+                    "Command Code session expired. Open the CLI and sign in again, or paste a Provider-API key into config.json.";
             }
             else
             {
                 credential.Message =
-                    "Nessuna credenziale Command Code. Incolla una Provider-API key in config.json (commandcode.ai/studio/provider) o imposta COMMANDCODE_API_KEY.";
+                    "No Command Code credentials. Paste a Provider-API key into config.json (commandcode.ai/studio/provider) or set COMMANDCODE_API_KEY.";
             }
             return credential;
         }

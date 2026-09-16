@@ -94,4 +94,4 @@ try {
 }
 
 $icon = Get-Item $OutputPath
-Write-Output ("Icona creata: {0} ({1:N0} byte, {2} dimensioni)" -f $icon.FullName, $icon.Length, $sizes.Count)
+Write-Output ("Icon created: {0} ({1:N0} bytes, {2} sizes)" -f $icon.FullName, $icon.Length, $sizes.Count)

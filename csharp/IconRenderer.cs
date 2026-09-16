@@ -245,36 +245,36 @@ namespace CommandCodeMonitor
 
             if (noData)
             {
-                graphics.DrawString("In attesa del primo aggiornamento...", _fontLabel, _brushDim, 16f, 56f);
+                graphics.DrawString("Waiting for the first update...", _fontLabel, _brushDim, 16f, 56f);
                 return;
             }
 
             if (hasError)
             {
-                var message = string.IsNullOrEmpty(data.Message) ? "Dati non disponibili." : data.Message;
+                var message = string.IsNullOrEmpty(data.Message) ? "Data unavailable." : data.Message;
                 var rect = new RectangleF(16, 54, PanelWidth - 32, 200);
                 graphics.DrawString(message, _fontLabel, _brushText, rect);
-                graphics.DrawString("Clic destro sull'icona > Apri config.json", _fontSmall, _brushDim, 16f, 240f);
+                graphics.DrawString("Right-click the icon > Open config.json", _fontSmall, _brushDim, 16f, 240f);
                 return;
             }
 
-            DrawLimitRow(graphics, 50, "5 ore", data.FiveHour, data.FiveHourResetIn, data.FiveHourResetAt, data.FiveHourUsage);
-            DrawLimitRow(graphics, 106, "Settimanale", data.Weekly, data.WeeklyResetIn, data.WeeklyResetAt, data.WeeklyUsage);
-            DrawLimitRow(graphics, 162, "Mensile", data.Monthly, data.MonthlyResetIn, data.MonthlyResetAt, data.MonthlyUsage);
+            DrawLimitRow(graphics, 50, "5 hours", data.FiveHour, data.FiveHourResetIn, data.FiveHourResetAt, data.FiveHourUsage);
+            DrawLimitRow(graphics, 106, "Weekly", data.Weekly, data.WeeklyResetIn, data.WeeklyResetAt, data.WeeklyUsage);
+            DrawLimitRow(graphics, 162, "Monthly", data.Monthly, data.MonthlyResetIn, data.MonthlyResetAt, data.MonthlyUsage);
 
-            DrawTextRow(graphics, 218, "Token usati", data.Tokens != null ? data.TokensValue : "non disponibili");
-            DrawTextRow(graphics, 242, "Run eseguiti", data.Runs != null ? data.RunsValue : "non disponibili");
+            DrawTextRow(graphics, 218, "Tokens used", data.Tokens != null ? data.TokensValue : "unavailable");
+            DrawTextRow(graphics, 242, "Runs", data.Runs != null ? data.RunsValue : "unavailable");
 
             if (data.Credits != null && !string.IsNullOrEmpty(data.CreditsText))
                 graphics.DrawString(data.CreditsText, _fontSmall, _brushDim, 16f, 266f);
 
             var footerY = PanelHeight - 18f;
-            graphics.DrawString("Aggiornato alle " + Format.Clock(data.FetchedAt), _fontSmall, _brushDim, 16f, footerY);
+            graphics.DrawString("Updated at " + Format.Clock(data.FetchedAt), _fontSmall, _brushDim, 16f, footerY);
 
             string note = null;
             Color noteColor = _textDim;
-            if (fetching) note = "aggiornamento...";
-            else if (data.Stale) { note = "non aggiornato"; noteColor = _warn; }
+            if (fetching) note = "refreshing...";
+            else if (data.Stale) { note = "not updated"; noteColor = _warn; }
             if (note != null)
             {
                 var noteSize = graphics.MeasureString(note, _fontSmall);
@@ -297,14 +297,14 @@ namespace CommandCodeMonitor
 
             if (window == null)
             {
-                graphics.DrawString("finestra non ancora aperta", _fontSmall, _brushDim, left, y + 18);
+                graphics.DrawString("window not open yet", _fontSmall, _brushDim, left, y + 18);
                 return;
             }
 
             var barY = y + 20;
             DrawProgressBar(graphics, left, barY, PanelWidth - 32, 7, window.Percent, PhaseColor(window.Percent));
 
-            var detail = "usato " + usage;
+            var detail = "used " + usage;
             if (!string.IsNullOrEmpty(resetIn))
                 detail += "   -   reset in " + resetIn + " (" + resetAt + ")";
             graphics.DrawString(detail, _fontSmall, _brushDim, left, barY + 11);

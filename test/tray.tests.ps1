@@ -150,7 +150,7 @@ Describe "Update-TrayPresentation" {
   It "shows the auth prompt state in the tooltip" {
     $script:Data = [pscustomobject]@{ status = "auth_needed"; message = "niente key" }
     Update-TrayPresentation
-    $script:TrayIcon.Text | Should Match "accesso richiesto"
+    $script:TrayIcon.Text | Should Match "authentication required"
   }
 
   It "keeps the tooltip within the 63-character Windows limit" {
@@ -173,7 +173,7 @@ Describe "Update-TrayPresentation" {
       stale = $true
     }
     Update-TrayPresentation
-    $script:TrayIcon.Text | Should Match "non aggiornati"
+    $script:TrayIcon.Text | Should Match "data not updated"
   }
 }
 

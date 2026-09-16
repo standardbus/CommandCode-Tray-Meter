@@ -21,7 +21,7 @@ $sessionFile = Join-Path $root ".cache\session.json"
 
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source
 if (-not $node) {
-  Write-Output "RESULT: FAIL - node non trovato nel PATH"
+  Write-Output "RESULT: FAIL - node not found in PATH"
   exit 1
 }
 
@@ -45,7 +45,7 @@ while ((Get-Date) -lt $deadline -and -not $ready) {
   }
 }
 if (-not $ready) {
-  Write-Output "RESULT: FAIL - la sessione stub non si e avviata"
+  Write-Output "RESULT: FAIL - the stub session did not start"
   if ($stub -and -not $stub.HasExited) { Stop-Process -Id $stub.Id -Force }
   exit 1
 }
@@ -126,18 +126,18 @@ function Invoke-LiveUpdateCheck {
   $beforeText = ($fields | ForEach-Object { if ($first.$_) { $first.display."$_`Percent" } else { "--" } }) -join " / "
   $afterText = ($fields | ForEach-Object { if ($second.$_) { $second.display."$_`Percent" } else { "--" } }) -join " / "
 
-  Write-Output "apertura bolla        : $openMs ms (non attende la rete)"
-  Write-Output "finestre prima        : $beforeText"
-  Write-Output "finestre dopo         : $afterText"
+  Write-Output "bubble opening        : $openMs ms (does not wait for the network)"
+  Write-Output "windows before        : $beforeText"
+  Write-Output "windows after         : $afterText"
   Write-Output "revision              : $startRevision -> $endRevision"
-  Write-Output "bolla ancora aperta   : $stillOpen"
+  Write-Output "bubble still open     : $stillOpen"
 
   $openOk = $opened -and $openMs -ge 0 -and $openMs -lt 1000
   $changed = $startRevision -ne $endRevision
   $dataOk = $null -ne $first -and $null -ne $first.fiveHour
 
   if ($openOk -and $changed -and $dataOk) {
-    Write-Output "RESULT: PASS - apertura immediata ($openMs ms) e valori aggiornati mentre la bolla resta aperta."
+    Write-Output "RESULT: PASS - immediate opening ($openMs ms) and values updated while the bubble stays open."
     $script:LiveUpdateResult = 0
     return
   }

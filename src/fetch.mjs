@@ -60,7 +60,7 @@ function parseArgs(argv) {
         else if (arg.startsWith("--url=")) options.url = arg.slice("--url=".length);
         else if (arg.startsWith("--out=")) options.outPath = arg.slice("--out=".length);
         else {
-          console.error(`Argomento non riconosciuto: ${arg}`);
+          console.error(`Unrecognised argument: ${arg}`);
           process.exit(3);
         }
     }
@@ -91,9 +91,9 @@ if (options.help) {
     [
       "Uso: node src/fetch.mjs [--auth-only] [--pretty] [--url URL] [--config PATH]",
       "",
-      "  --auth-only   riporta solo quale sorgente di credenziale e stata trovata",
+      "  --auth-only   reports only which credential source was found",
       "  --url URL     sovrascrive la base URL (utile con scripts/fixture-server.mjs)",
-      "  --config PATH usa un file di configurazione alternativo",
+      "  --config PATH use an alternative configuration file",
       "  --pretty      output JSON indentato",
     ].join("\n"),
   );
@@ -108,7 +108,7 @@ let config;
 try {
   config = loadConfig(configPath);
 } catch (error) {
-  emit({ status: STATUS.HTTP_ERROR, message: redact(`config.json non leggibile: ${error.message}`) }, options.pretty, options.outPath);
+  emit({ status: STATUS.HTTP_ERROR, message: redact(`config.json is not readable: ${error.message}`) }, options.pretty, options.outPath);
   process.exit(3);
 }
 
@@ -142,7 +142,7 @@ try {
     status: STATUS.NETWORK_ERROR,
     source: "none",
     fetchedAt: Date.now(),
-    message: redact(`Errore imprevisto: ${error?.message ?? error}`),
+    message: redact(`Unexpected error: ${error?.message ?? error}`),
   };
 }
 

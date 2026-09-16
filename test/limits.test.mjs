@@ -261,9 +261,9 @@ describe("computeMonthlyWindow", () => {
 
 describe("formatTokenCount / formatCount", () => {
   test("scales large token counts for readability", () => {
-    assert.equal(formatTokenCount(563961963), "564,0 M");
-    assert.equal(formatTokenCount(1843200000), "1,84 Mrd");
-    assert.equal(formatTokenCount(45231), "45,2 K");
+    assert.equal(formatTokenCount(563961963), "564.0 M");
+    assert.equal(formatTokenCount(1843200000), "1.84 B");
+    assert.equal(formatTokenCount(45231), "45.2 K");
     assert.equal(formatTokenCount(999), "999");
     assert.equal(formatTokenCount(0), "0");
   });
@@ -274,13 +274,12 @@ describe("formatTokenCount / formatCount", () => {
     assert.equal(formatTokenCount("abc"), "-");
   });
 
-  test("groups run counts when the runtime carries locale data", () => {
-    // Thousands grouping depends on the ICU data bundled with the runtime, which
-    // is absent from small Node builds. The value must be right either way; the
-    // separator itself is not something this code controls.
-    const grouped = (3120).toLocaleString("it-IT");
-    assert.equal(formatCount(3120), grouped);
-    assert.match(formatCount(3120), /^3[.,\s]?120$/);
+  test("renders run counts ungrouped, matching the C# implementation", () => {
+    // Grouping would depend on the ICU data bundled with the runtime, which is
+    // absent from small Node builds. Both implementations therefore print the
+    // exact integer, so the two cannot drift.
+    assert.equal(formatCount(3120), "3120");
+    assert.equal(formatCount(1234567), "1234567");
     assert.equal(formatCount(0), "0");
     assert.equal(formatCount(null), "-");
     assert.equal(formatCount(-1), "-");
@@ -290,11 +289,11 @@ describe("formatTokenCount / formatCount", () => {
 describe("formatters", () => {
   test("formatDelta renders days, hours and minutes", () => {
     assert.equal(formatDelta(3 * 3600000 + 12 * 60000), "3h 12m");
-    assert.equal(formatDelta(2 * 86400000 + 4 * 3600000), "2g 4h");
-    assert.equal(formatDelta(2 * 86400000), "2g");
+    assert.equal(formatDelta(2 * 86400000 + 4 * 3600000), "2d 4h");
+    assert.equal(formatDelta(2 * 86400000), "2d");
     assert.equal(formatDelta(45 * 60000), "45m");
-    assert.equal(formatDelta(0), "ora");
-    assert.equal(formatDelta(-1000), "ora");
+    assert.equal(formatDelta(0), "<1m");
+    assert.equal(formatDelta(-1000), "<1m");
     assert.equal(formatDelta(30000), "<1m");
     assert.equal(formatDelta(NaN), "-");
   });
@@ -307,10 +306,10 @@ describe("formatters", () => {
   test("formatAmount trims API floats to at most two decimals", () => {
     // The live API returns values like 2.000223421; printing them raw is noise.
     assert.equal(formatAmount(2.000223421), "2");
-    assert.equal(formatAmount(8.452685563), "8,45");
-    assert.equal(formatAmount(1.910707981), "1,91");
+    assert.equal(formatAmount(8.452685563), "8.45");
+    assert.equal(formatAmount(1.910707981), "1.91");
     assert.equal(formatAmount(14), "14");
-    assert.equal(formatAmount(69.907555494), "69,91");
+    assert.equal(formatAmount(69.907555494), "69.91");
     assert.equal(formatAmount(0), "0");
   });
 
@@ -327,14 +326,14 @@ describe("formatters", () => {
 
   test("formatUsagePair renders the used-against-cap pair", () => {
     assert.equal(formatUsagePair(2.000223421, 14), "2 / 14");
-    assert.equal(formatUsagePair(8.452685563, 35), "8,45 / 35");
+    assert.equal(formatUsagePair(8.452685563, 35), "8.45 / 35");
   });
 
   test("formatResetAt shortens to a clock time, adding a day marker when needed", () => {
     const now = new Date(2026, 7, 15, 16, 48, 0).getTime();
     const at = (d, h, m) => new Date(2026, 7, d, h, m, 0).toISOString();
     assert.equal(formatResetAt(at(15, 20, 0), now), "20:00");
-    assert.equal(formatResetAt(at(16, 9, 30), now), `domani 09:30`);
+    assert.equal(formatResetAt(at(16, 9, 30), now), `tomorrow 09:30`);
     assert.equal(formatResetAt("nonsense", now), "-");
   });
 
@@ -364,8 +363,8 @@ describe("buildTooltip", () => {
   });
 
   test("names the failure state instead of showing stale numbers", () => {
-    assert.match(buildTooltip(emptyResult(STATUS.AUTH_NEEDED, "x")), /accesso richiesto/);
-    assert.match(buildTooltip(emptyResult(STATUS.NETWORK_ERROR, "x")), /dati non disponibili/);
+    assert.match(buildTooltip(emptyResult(STATUS.AUTH_NEEDED, "x")), /authentication required/);
+    assert.match(buildTooltip(emptyResult(STATUS.NETWORK_ERROR, "x")), /data unavailable/);
   });
 });
 
@@ -604,7 +603,7 @@ describe("fetchLimits", () => {
       now: NOW,
     });
     assert.equal(result.status, STATUS.HTTP_ERROR);
-    assert.match(result.message, /schema non riconosciuto/);
+    assert.match(result.message, /unrecognised schema/);
   });
 
   test("never leaks the token into the serialized result", async () => {

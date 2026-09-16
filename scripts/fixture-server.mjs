@@ -110,6 +110,6 @@ const server = createServer((request, response) => {
 server.listen(options.port, "127.0.0.1", () => {
   console.log(
     `fixture server su http://127.0.0.1:${options.port} (modo: ${options.mode}). ` +
-      `Prova: node src/fetch.mjs --url http://127.0.0.1:${options.port} --pretty`,
+      `Try: node src/fetch.mjs --url http://127.0.0.1:${options.port} --pretty`,
   );
 });

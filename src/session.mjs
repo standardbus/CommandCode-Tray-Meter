@@ -117,7 +117,7 @@ const state = {
     status: STATUS.NETWORK_ERROR,
     source: "none",
     fetchedAt: 0,
-    message: "Primo aggiornamento in corso.",
+    message: "First update in progress.",
   },
   fetching: false,
   fetchedAt: 0,
@@ -200,7 +200,7 @@ async function refresh(reason) {
     return result;
   } catch (error) {
     state.consecutiveFailures += 1;
-    const message = redact(`Errore imprevisto: ${error?.message ?? error}`);
+    const message = redact(`Unexpected error: ${error?.message ?? error}`);
     state.result = { ...state.result, stale: true, staleReason: message, lastErrorAt: Date.now() };
     return { status: STATUS.NETWORK_ERROR, message };
   } finally {

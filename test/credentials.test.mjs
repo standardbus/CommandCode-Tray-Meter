@@ -135,14 +135,14 @@ describe("resolveCredential", () => {
       { env: {}, fs: nodeFs },
     );
     assert.equal(lapsed.error, STATUS.AUTH_NEEDED);
-    assert.match(lapsed.message, /scaduto/i);
+    assert.match(lapsed.message, /expired/i);
 
     const signedOut = resolveCredential(normalizeConfig({ creditFiles: [join(expired, "absent.json")] }), {
       env: {},
       fs: nodeFs,
     });
     assert.equal(signedOut.error, STATUS.AUTH_NEEDED);
-    assert.match(signedOut.message, /Nessuna credenziale/i);
+    assert.match(signedOut.message, /No Command Code credentials/i);
   });
 
   test("a malformed file is skipped, not fatal", () => {

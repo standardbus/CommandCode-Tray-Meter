@@ -24,7 +24,7 @@ if (-not $OutputPath) { $OutputPath = Join-Path $root "CommandCodeMonitor.exe" }
 $csc = Join-Path $env:SystemRoot "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $csc)) { $csc = Join-Path $env:SystemRoot "Microsoft.NET\Framework\v4.0.30319\csc.exe" }
 if (-not (Test-Path $csc)) {
-  throw "csc.exe non trovato: serve .NET Framework 4.x, incluso in Windows 10 e 11."
+  throw "csc.exe not found: .NET Framework 4.x is required and ships with Windows 10 and 11."
 }
 
 $sources = Get-ChildItem -Path $sourceDir -Filter *.cs | Sort-Object Name | ForEach-Object { $_.FullName }
@@ -54,25 +54,25 @@ function Invoke-SelfTest {
     try { $text = (& $Exe --selftest --config $ConfigPath 2>&1 | Out-String) }
     finally { $ErrorActionPreference = $previous }
     Set-Content -Path $LogPath -Value $text -Encoding UTF8
-    return $(if ($text -match '0 falliti') { 0 } else { 1 })
+    return $(if ($text -match '0 failed') { 0 } else { 1 })
   }
 }
 
 Write-Output "CommandCode Monitor - build"
-Write-Output "  sorgenti   : $sourceDir ($($sources.Count) file)"
+Write-Output "  sources    : $sourceDir ($($sources.Count) files)"
 Write-Output "  output     : $OutputPath"
-Write-Output "  compilatore: $csc"
+Write-Output "  compiler   : $csc"
 Write-Output ""
 
 # The icon is generated from source, so the repository carries no binary asset
 # that nobody can regenerate.
 $iconPath = Join-Path $sourceDir "app.ico"
 if (-not (Test-Path $iconPath)) {
-  Write-Output "Generazione icona..."
+  Write-Output "Generating icon..."
   & (Join-Path $PSScriptRoot "make-icon.ps1") -OutputPath $iconPath | ForEach-Object { "  $_" }
 }
 
-Write-Output "Compilazione..."
+Write-Output "Compiling..."
 $arguments = @(
   "/nologo",
   "/target:winexe",
@@ -95,22 +95,22 @@ if ($errors) {
 $output | Where-Object { $_ -match 'warning CS' } | ForEach-Object { "  $_" }
 
 $exe = Get-Item $OutputPath
-Write-Output ("Creato: {0} ({1:N0} KB)" -f $exe.FullName, ($exe.Length / 1KB))
+Write-Output ("Created: {0} ({1:N0} KB)" -f $exe.FullName, ($exe.Length / 1KB))
 Write-Output ""
 
 if (-not $SkipSelfTest) {
-  Write-Output "Autotest dell'eseguibile:"
+  Write-Output "Executable self-test:"
   $testLog = Join-Path $env:TEMP "ccm-selftest.log"
   $exitCode = Invoke-SelfTest -Exe $OutputPath -ConfigPath $configPath -LogPath $testLog
   $report = if (Test-Path $testLog) { Get-Content $testLog -ErrorAction SilentlyContinue } else { @() }
   $report | ForEach-Object { "  $_" }
-  if ($exitCode -ne 0 -or -not ($report -match '0 falliti')) {
+  if ($exitCode -ne 0 -or -not ($report -match '0 failed')) {
     Write-Output ""
-    Write-Output "BUILD FALLITA: autotest non superato."
+    Write-Output "BUILD FAILED: the self-test did not pass."
     exit 1
   }
 }
 
 Write-Output ""
-Write-Output "Fatto. Metti CommandCodeMonitor.exe e config.json nella stessa cartella e avvialo:"
-Write-Output "  non servono Node, PowerShell, ne' altri file."
+Write-Output "Done. Put CommandCodeMonitor.exe and config.json in the same folder and run it:"
+Write-Output "  no Node, no PowerShell and no other files are needed."

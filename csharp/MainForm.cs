@@ -54,7 +54,7 @@ namespace CommandCodeMonitor
         public void EnableDemo(int showAfterMs, int quitAfterMs)
         {
             _demo = true;
-            Diag("demo: avvio, bolla tra " + showAfterMs + "ms, uscita tra " + quitAfterMs + "ms");
+            Diag("demo: starting, bubble in " + showAfterMs + "ms, exit in " + quitAfterMs + "ms");
             var show = new System.Windows.Forms.Timer { Interval = showAfterMs };
             show.Tick += (sender, args) =>
             {
@@ -70,7 +70,7 @@ namespace CommandCodeMonitor
             {
                 quit.Stop();
                 quit.Dispose();
-                Diag("demo: chiusura richiesta - " + DescribeState());
+                Diag("demo: close requested - " + DescribeState());
                 Quit();
                 Diag("demo: Quit() ritornato");
             };
@@ -91,7 +91,7 @@ namespace CommandCodeMonitor
         /// <summary>Diagnostics for the demo run: what the bubble believes.</summary>
         public string DescribeState()
         {
-            var status = _data == null ? "(nessun dato)" : (_data.Status ?? "ok");
+            var status = _data == null ? "(no data)" : (_data.Status ?? "ok");
             return "visibile=" + _popup.Visible +
                    " bounds=" + _popup.Bounds +
                    " stato=" + status +
@@ -108,22 +108,22 @@ namespace CommandCodeMonitor
             _popup.CloseRequested += (sender, args) => HideBubble();
 
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Mostra limiti", null, (sender, args) => ShowBubble());
-            menu.Items.Add("Aggiorna ora", null, (sender, args) => StartUpdate());
-            menu.Items.Add("Apri config.json (" + Path.GetFileName(config.SourcePath) + ")", null,
+            menu.Items.Add("Show limits", null, (sender, args) => ShowBubble());
+            menu.Items.Add("Refresh now", null, (sender, args) => StartUpdate());
+            menu.Items.Add("Open config.json (" + Path.GetFileName(config.SourcePath) + ")", null,
                 (sender, args) => OpenConfig());
-            menu.Items.Add("Impostazioni Command Code (Studio)", null,
+            menu.Items.Add("Command Code settings (Studio)", null,
                 (sender, args) => Process.Start("https://commandcode.ai/studio/provider"));
-            _autostartItem = new ToolStripMenuItem("Avvia con Windows", null, (sender, args) => ToggleAutostart());
+            _autostartItem = new ToolStripMenuItem("Start with Windows", null, (sender, args) => ToggleAutostart());
             _autostartItem.Checked = IsAutostartEnabled();
             menu.Items.Add(_autostartItem);
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Esci", null, (sender, args) => Quit());
+            menu.Items.Add("Exit", null, (sender, args) => Quit());
 
             _tray = new NotifyIcon
             {
                 Icon = _renderer.DrawStatusIcon(null, null),
-                Text = "Command Code: avvio in corso",
+                Text = "Command Code: starting up",
                 ContextMenuStrip = menu,
                 Visible = true,
             };
@@ -258,7 +258,7 @@ namespace CommandCodeMonitor
                 _data = new LimitsResult
                 {
                     Status = "network_error",
-                    Message = "Errore imprevisto: " + error.Message,
+                    Message = "Unexpected error: " + error.Message,
                     FetchedAt = DateTime.UtcNow,
                 }.BuildDisplay(DateTime.UtcNow);
             }
@@ -315,17 +315,17 @@ namespace CommandCodeMonitor
                 ring = window == null ? (double?)null : window.Percent;
                 weekly = data.Weekly == null ? (double?)null : data.Weekly.Percent;
                 tooltip = data.Tooltip ?? "Command Code";
-                if (data.Stale) tooltip += "  (dati non aggiornati)";
+                if (data.Stale) tooltip += "  (data not updated)";
             }
             else if (data != null)
             {
                 tooltip = data.Status == "auth_needed"
-                    ? "Command Code: accesso richiesto"
-                    : "Command Code: dati non disponibili";
+                    ? "Command Code: authentication required"
+                    : "Command Code: data unavailable";
             }
             else
             {
-                tooltip = "Command Code: avvio in corso";
+                tooltip = "Command Code: starting up";
             }
 
             var signature = ring + "|" + weekly + "|" + _config.IconMetric + "|" + _config.Monochrome + "|" +
@@ -493,7 +493,7 @@ namespace CommandCodeMonitor
             }
             catch (Exception error)
             {
-                MessageBox.Show("Impossibile modificare l'avvio automatico:\n" + error.Message,
+                MessageBox.Show("Cannot change the autostart setting:\n" + error.Message,
                     "CommandCode Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -512,7 +512,7 @@ namespace CommandCodeMonitor
             try { _client.Dispose(); } catch { }
             try { _renderer.Dispose(); } catch { }
 
-            if (_demo) Diag("demo: uscita, thread attivi = " + Process.GetCurrentProcess().Threads.Count);
+            if (_demo) Diag("demo: exiting, live threads = " + Process.GetCurrentProcess().Threads.Count);
 
             // Leave at once rather than only ending the message loop: an
             // HttpClient request still parked on a socket keeps a background

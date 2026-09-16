@@ -164,7 +164,7 @@ namespace CommandCodeMonitor
         public string TokensValue = "-";
         public string RunsValue = "-";
         public string CreditsText;
-        public string Tooltip = "Command Code: avvio in corso";
+        public string Tooltip = "Command Code: starting up";
 
         public string PercentFor(string metric)
         {
@@ -207,8 +207,8 @@ namespace CommandCodeMonitor
 
             if (Credits != null)
             {
-                CreditsText = "Crediti: " + Format.Amount(Credits.Used) + " su " + Format.Amount(Credits.Limit) +
-                              " USD  (" + Format.Amount(Credits.Remaining) + " rimasti)";
+                CreditsText = "Credits: " + Format.Amount(Credits.Used) + " of " + Format.Amount(Credits.Limit) +
+                              " USD  (" + Format.Amount(Credits.Remaining) + " left)";
             }
             if (Tokens != null) TokensValue = Format.TokenCount(Tokens.Total);
             if (Runs != null) RunsValue = Format.Count(Runs.Total);
@@ -247,8 +247,8 @@ namespace CommandCodeMonitor
             if (!string.IsNullOrEmpty(Status))
             {
                 return Status == "auth_needed"
-                    ? "Command Code: accesso richiesto"
-                    : "Command Code: dati non disponibili";
+                    ? "Command Code: authentication required"
+                    : "Command Code: data unavailable";
             }
             var parts = new List<string>();
             if (FiveHour != null)
@@ -258,7 +258,7 @@ namespace CommandCodeMonitor
             }
             if (Weekly != null) parts.Add("7g " + WeeklyPercent);
             if (Monthly != null) parts.Add("30g " + MonthlyPercent);
-            if (parts.Count == 0) return "Command Code: nessun limite attivo";
+            if (parts.Count == 0) return "Command Code: no active limits";
             return "Command Code " + string.Join(" | ", parts.ToArray());
         }
     }

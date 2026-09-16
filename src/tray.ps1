@@ -93,7 +93,7 @@ public static extern bool DestroyIcon(System.IntPtr hIcon);
 '@
   [void][CcMonitor.Native]::SetProcessDPIAware()
 } catch {
-  Write-TrayError "SetProcessDPIAware non disponibile: $($_.Exception.Message)"
+  Write-TrayError "SetProcessDPIAware unavailable: $($_.Exception.Message)"
 }
 
 # A ToolStripDropDown never takes mouse capture, so it cannot notice a click that
@@ -116,7 +116,7 @@ public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam,
 public static extern IntPtr GetModuleHandle(string lpModuleName);
 '@
 } catch {
-  Write-TrayError "Hook del mouse non disponibile: $($_.Exception.Message)"
+  Write-TrayError "Mouse hook unavailable: $($_.Exception.Message)"
 }
 
 # Escape must be caught through a message filter: the dropdown never takes focus
@@ -146,7 +146,7 @@ public class PopupKeyFilter : IMessageFilter
 }
 '@
 } catch {
-  Write-TrayError "Filtro tastiera non disponibile: $($_.Exception.Message)"
+  Write-TrayError "Keyboard filter unavailable: $($_.Exception.Message)"
 }
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -183,7 +183,7 @@ function Import-MonitorConfig {
       }
     }
   } catch {
-    Write-TrayError "config.json non leggibile: $($_.Exception.Message)"
+    Write-TrayError "config.json is not readable: $($_.Exception.Message)"
   }
 }
 
@@ -204,7 +204,7 @@ function Get-SessionInfo {
 function Start-LimitsSession {
   $node = Get-NodePath
   if (-not $node) {
-    Write-TrayError "node non trovato nel PATH: uso la modalita nativa."
+    Write-TrayError "node not found in PATH: using the native path."
     return $false
   }
   if (-not (Test-Path $CacheDir)) { New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null }
@@ -226,7 +226,7 @@ function Start-LimitsSession {
     Write-TrayError "sessione avviata (pid $($process.Id))"
     return $true
   } catch {
-    Write-TrayError "avvio sessione non disponibile: $($_.Exception.Message)"
+    Write-TrayError "session start unavailable: $($_.Exception.Message)"
     return $false
   }
 }
@@ -275,7 +275,7 @@ function Invoke-NativeFetch {
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr)
       $launched = $true
     } catch {
-      Write-TrayError "Start-Process non disponibile, uso il call operator: $($_.Exception.Message)"
+      Write-TrayError "Start-Process unavailable, falling back to the call operator: $($_.Exception.Message)"
     }
     if (-not $launched) {
       # No output redirection on this path: reusing those same files as the
@@ -294,7 +294,7 @@ function Invoke-NativeFetch {
     $text = $null
     if (Test-Path -LiteralPath $outFile) { $text = Read-TextWithRetry -Path $outFile }
     if (-not $text -or -not $text.Trim()) {
-      Write-TrayError "fetch senza risultato (uscita $LASTEXITCODE)"
+      Write-TrayError "fetch produced no result (exit $LASTEXITCODE)"
       return $null
     }
     return ($text.Trim() | ConvertFrom-Json)
@@ -395,7 +395,7 @@ function Get-PhaseColor {
 
 function Format-BarLabel {
   param($Window, $Label, $ResetIn, $ResetAt)
-  if ($null -eq $Window) { return "$Label  finestra non ancora aperta" }
+  if ($null -eq $Window) { return "$Label  window not open yet" }
   $percent = [Math]::Round([double]$Window.percent)
   if ($ResetIn) { return "$Label  $percent%  -  reset in $ResetIn ($ResetAt)" }
   return "$Label  $percent%"
@@ -584,7 +584,7 @@ function Draw-LimitRow {
   $Graphics.DrawString($percentText, $titleFont, $script:BrushText, [float]($valueRight - $percentSize.Width), [float]$Y)
 
   if ($null -eq $Window) {
-    $Graphics.DrawString("finestra non ancora aperta", $smallFont, $script:BrushDim, [float]$left, [float]($Y + 18))
+    $Graphics.DrawString("window not open yet", $smallFont, $script:BrushDim, [float]$left, [float]($Y + 18))
     return
   }
 
@@ -594,7 +594,7 @@ function Draw-LimitRow {
 
   # Usage comes pre-formatted from the shared module: the raw API values carry
   # nine decimals and would render as noise.
-  $detail = "usato $Usage"
+  $detail = "used $Usage"
   if ($ResetIn) { $detail += "   -   reset in $ResetIn ($ResetAt)" }
   $Graphics.DrawString($detail, $smallFont, $script:BrushDim, [float]$left, [float]($barY + 11))
 }
@@ -616,7 +616,7 @@ function Draw-CreditsRow {
   param([System.Drawing.Graphics]$Graphics, [int]$Y, $Credits, [string]$Text)
   $left = 16
   if ($null -eq $Credits) { return }
-  if (-not $Text) { $Text = "Crediti USD disponibili" }
+  if (-not $Text) { $Text = "USD credits available" }
   $Graphics.DrawString($Text, $script:FontSmall, $script:BrushDim, [float]$left, [float]$Y)
 }
 
@@ -675,35 +675,35 @@ function Draw-Panel {
   $crossPen.Dispose()
 
   if ($noData) {
-    $Graphics.DrawString("In attesa del primo aggiornamento...", $script:FontLabel, $script:BrushDim, [float]16, [float]56)
+    $Graphics.DrawString("Waiting for the first update...", $script:FontLabel, $script:BrushDim, [float]16, [float]56)
     return
   }
 
   if ($hasError) {
-    $message = if ($data.message) { [string]$data.message } else { "Dati non disponibili." }
+    $message = if ($data.message) { [string]$data.message } else { "Data unavailable." }
     # Direct constructors rather than New-Object: New-Object's argument binding
     # mis-parses an inline expression such as `$PanelWidth - 32` and fails with a
     # confusing "op_Subtraction" error instead of constructing the rectangle.
     $rect = [System.Drawing.RectangleF]::new(16, 54, [float]($PanelWidth - 32), 116)
     $Graphics.DrawString($message, $script:FontLabel, $script:BrushText, $rect)
-    $hint = "Clic destro sull'icona > Apri config.json"
+    $hint = "Right-click the icon > Open config.json"
     $Graphics.DrawString($hint, $script:FontSmall, $script:BrushDim, [float]16, [float]176)
     return
   }
 
-  Draw-LimitRow -Graphics $Graphics -Y 50 -Title "5 ore" -Window $data.fiveHour `
+  Draw-LimitRow -Graphics $Graphics -Y 50 -Title "5 hours" -Window $data.fiveHour `
     -ResetIn $data.display.fiveHourResetIn -ResetAt $data.display.fiveHourResetAt `
     -Usage $data.display.fiveHourUsage
-  Draw-LimitRow -Graphics $Graphics -Y 106 -Title "Settimanale" -Window $data.weekly `
+  Draw-LimitRow -Graphics $Graphics -Y 106 -Title "Weekly" -Window $data.weekly `
     -ResetIn $data.display.weeklyResetIn -ResetAt $data.display.weeklyResetAt `
     -Usage $data.display.weeklyUsage
-  Draw-LimitRow -Graphics $Graphics -Y 162 -Title "Mensile" -Window $data.monthly `
+  Draw-LimitRow -Graphics $Graphics -Y 162 -Title "Monthly" -Window $data.monthly `
     -ResetIn $data.display.monthlyResetIn -ResetAt $data.display.monthlyResetAt `
     -Usage $data.display.monthlyUsage
-  Draw-TextRow -Graphics $Graphics -Y 218 -Label "Token usati" `
-    -Value $(if ($data.tokens) { $data.display.tokensValue } else { "non disponibili" })
-  Draw-TextRow -Graphics $Graphics -Y 242 -Label "Run eseguiti" `
-    -Value $(if ($data.runs) { $data.display.runsValue } else { "non disponibili" })
+  Draw-TextRow -Graphics $Graphics -Y 218 -Label "Tokens used" `
+    -Value $(if ($data.tokens) { $data.display.tokensValue } else { "unavailable" })
+  Draw-TextRow -Graphics $Graphics -Y 242 -Label "Runs" `
+    -Value $(if ($data.runs) { $data.display.runsValue } else { "unavailable" })
   Draw-CreditsRow -Graphics $Graphics -Y 266 -Credits $data.credits -Text $data.display.creditsText
 
   # Footer.
@@ -722,11 +722,11 @@ function Draw-Panel {
       }
     }
   }
-  $Graphics.DrawString("Aggiornato alle $updated", $script:FontSmall, $script:BrushDim, [float]16, [float]$footerY)
+  $Graphics.DrawString("Updated at $updated", $script:FontSmall, $script:BrushDim, [float]16, [float]$footerY)
 
   $note = ""
-  if ($script:Fetching) { $note = "aggiornamento..." }
-  elseif ($isStale) { $note = "non aggiornato" }
+  if ($script:Fetching) { $note = "refreshing..." }
+  elseif ($isStale) { $note = "not updated" }
   if ($note) {
     $noteColor = if ($isStale) { $script:ColorWarn } else { $script:ColorTextDim }
     $noteBrush = New-SolidBrush $noteColor
@@ -757,13 +757,13 @@ function Update-TrayPresentation {
     $ringPercent = Get-Value (Get-Value $data $script:IconMetric) "percent"
     $weeklyPercent = Get-Value (Get-Value $data "weekly") "percent"
     $tooltip = [string](Get-Value $data "tooltip")
-    if ([bool](Get-Value $data "stale")) { $tooltip += "  (dati non aggiornati)" }
+    if ([bool](Get-Value $data "stale")) { $tooltip += "  (data not updated)" }
   } elseif ($data) {
     $status = [string](Get-Value $data "status")
-    if ($status -eq "auth_needed") { $tooltip = "Command Code: accesso richiesto" }
-    else { $tooltip = "Command Code: dati non disponibili" }
+    if ($status -eq "auth_needed") { $tooltip = "Command Code: authentication required" }
+    else { $tooltip = "Command Code: data unavailable" }
   } else {
-    $tooltip = "Command Code: avvio in corso"
+    $tooltip = "Command Code: starting up"
   }
 
   # Repaint the icon only when a value actually changed.
@@ -796,7 +796,7 @@ function Submit-Refresh {
     } elseif ($null -eq $script:Data) {
       $script:Data = [pscustomobject]@{
         status = "network_error"
-        message = "Nessuna sessione attiva e fetch nativo non disponibile."
+        message = "No active session and native fetch unavailable."
       }
     }
   } catch {
@@ -848,7 +848,7 @@ function Start-LimitsUpdate {
 }
 
 # The session answers /refresh with 202 as soon as it accepts the work; its
-# completion is what clears the "aggiornamento..." note.
+# completion is what clears the "refreshing..." note.
 function Complete-PendingRefresh {
   $pending = $script:PendingRefresh
   if (-not $pending) { return $false }
@@ -1001,7 +1001,7 @@ try {
   $script:HttpClient.Timeout = [TimeSpan]::FromSeconds(15)
 } catch {
   $script:HttpClient = $null
-  Write-TrayError "HttpClient non disponibile: $($_.Exception.Message)"
+  Write-TrayError "HttpClient unavailable: $($_.Exception.Message)"
 }
 
 Import-MonitorConfig
@@ -1079,7 +1079,7 @@ if ("PopupKeyFilter" -as [type]) {
     }
     [System.Windows.Forms.Application]::AddMessageFilter($script:PopupKeyFilter)
   } catch {
-    Write-TrayError "MessageFilter non aggiunto: $($_.Exception.Message)"
+    Write-TrayError "MessageFilter not added: $($_.Exception.Message)"
   }
 }
 
@@ -1106,7 +1106,7 @@ function Add-MenuItem {
   return $item
 }
 
-[void](Add-MenuItem -Text "Mostra limiti" -OnClick { Show-LimitsPopup })
+[void](Add-MenuItem -Text "Show limits" -OnClick { Show-LimitsPopup })
 [void](Add-MenuItem -Text "Aggiorna ora" -OnClick {
   Start-LimitsUpdate
   if ($script:Popup.Visible) { $script:OwnerDrawItem.Invalidate() }
@@ -1116,12 +1116,12 @@ function Add-MenuItem {
     $example = Join-Path $ProjectRoot "config.example.json"
     if (Test-Path $example) { Copy-Item $example $ConfigPath -Force }
   }
-  if (Test-Path $ConfigPath) { Start-Process notepad.exe $ConfigPath } else { Write-TrayError "config.json assente" }
+  if (Test-Path $ConfigPath) { Start-Process notepad.exe $ConfigPath } else { Write-TrayError "config.json missing" }
 })
 [void](Add-MenuItem -Text "Impostazioni Command Code (Studio)" -OnClick {
   Start-Process "https://commandcode.ai/studio/provider"
 })
-$script:AutostartItem = Add-MenuItem -Text "Avvia con Windows" -OnClick {
+$script:AutostartItem = Add-MenuItem -Text "Start with Windows" -OnClick {
   $installer = Join-Path $ProjectRoot "scripts\install-autostart.ps1"
   $uninstaller = Join-Path $ProjectRoot "scripts\uninstall-autostart.ps1"
   try {
@@ -1142,7 +1142,7 @@ $script:AutostartItem.Checked = Test-Path $startupLink
 
 $script:TrayIcon = New-Object System.Windows.Forms.NotifyIcon
 $script:TrayIcon.Icon = New-StatusIcon -FivePercent $null -WeeklyPercent $null
-$script:TrayIcon.Text = "Command Code: avvio in corso"
+$script:TrayIcon.Text = "Command Code: starting up"
 $script:TrayIcon.ContextMenuStrip = $script:Menu
 $script:TrayIcon.Visible = $true
 $script:TrayIcon.Add_MouseClick({
@@ -1188,7 +1188,7 @@ $script:KeepAliveTimer.Add_Tick({
   } catch { }
   # Restart the helper session if it died underneath us.
   if (-not $NoSession -and -not (Get-SessionInfo)) {
-    Write-TrayError "sessione assente: riavvio"
+    Write-TrayError "session missing: restarting"
     [void](Start-LimitsSession)
   }
 })

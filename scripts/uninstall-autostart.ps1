@@ -14,7 +14,7 @@ $ErrorActionPreference = "Stop"
 $linkPath = Join-Path ([Environment]::GetFolderPath("Startup")) "CommandCodeMonitor.lnk"
 
 if ($DryRun) {
-  Write-Output "Prova a vuoto (nessuna modifica). Verrebbe rimosso:"
+  Write-Output "Dry run (nothing is changed). This would be removed:"
   Write-Output "  $linkPath  (esiste: $(Test-Path -LiteralPath $linkPath))"
   exit 0
 }
@@ -27,11 +27,11 @@ if (Test-Path -LiteralPath $linkPath) {
 Impossibile rimuovere "$linkPath".
 $($_.Exception.Message)
 
-Avvia lo script da una normale finestra PowerShell dell'utente e riprova.
+Run the script from a normal user PowerShell window and try again.
 "@
     exit 1
   }
-  if (-not $Quiet) { Write-Output "Avvio automatico disattivato: rimosso $linkPath" }
+  if (-not $Quiet) { Write-Output "Start-at-login disabled: removed $linkPath" }
 } elseif (-not $Quiet) {
-  Write-Output "Nessun collegamento di avvio automatico da rimuovere."
+  Write-Output "There is no start-at-login shortcut to remove."
 }

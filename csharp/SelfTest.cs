@@ -32,26 +32,26 @@ namespace CommandCodeMonitor
                 var configForIcon = MonitorConfig.Load(configPath);
                 using (var renderer = new IconRenderer(configForIcon))
                     WriteIcon(renderer, iconPath);
-                Console.WriteLine("icona scritta: " + iconPath);
+                Console.WriteLine("icon written: " + iconPath);
                 return 0;
             }
 
             Console.WriteLine("CommandCode Monitor - selftest");
-            Console.WriteLine("  eseguibile : " + Application.ExecutablePath);
+            Console.WriteLine("  executable : " + Application.ExecutablePath);
             Console.WriteLine("  config     : " + configPath);
             Console.WriteLine();
 
-            Console.WriteLine("Configurazione");
+            Console.WriteLine("Configuration");
             MonitorConfig config = null;
-            Check("config.json leggibile", () =>
+            Check("config.json is readable", () =>
             {
                 config = MonitorConfig.Load(configPath);
-                if (!File.Exists(configPath)) throw new Exception("assente: " + configPath);
+                if (!File.Exists(configPath)) throw new Exception("missing: " + configPath);
                 return "baseUrl " + config.BaseUrl + ", refresh " + config.RefreshSeconds + "s";
             });
             if (config == null) return Finish();
 
-            Check("sorgente credenziale trovata", () =>
+            Check("credential source found", () =>
             {
                 var credential = Credentials.Resolve(config);
                 if (!credential.Ok) throw new Exception(credential.Message);
@@ -59,38 +59,38 @@ namespace CommandCodeMonitor
             });
 
             Console.WriteLine();
-            Console.WriteLine("Formattazione");
-            Check("percentuale arrotondata", () =>
+            Console.WriteLine("Formatting");
+            Check("percentage rounded", () =>
             {
                 Equal("37%", Format.Percent(36.59));
                 Equal("-", Format.Percent(double.NaN));
                 return Format.Percent(36.59);
             });
-            Check("importi a due decimali", () =>
+            Check("amounts with two decimals", () =>
             {
                 Equal("2", Format.Amount(2.000223421));
-                Equal("8,45", Format.Amount(8.452685563));
-                Equal("69,91", Format.Amount(69.907555494));
+                Equal("8.45", Format.Amount(8.452685563));
+                Equal("69.91", Format.Amount(69.907555494));
                 return Format.Amount(8.452685563);
             });
-            Check("conteggio token abbreviato", () =>
+            Check("token count abbreviated", () =>
             {
-                Equal("564,0 M", Format.TokenCount(563961963));
-                Equal("1,84 Mrd", Format.TokenCount(1843200000));
-                Equal("45,2 K", Format.TokenCount(45231));
+                Equal("564.0 M", Format.TokenCount(563961963));
+                Equal("1.84 B", Format.TokenCount(1843200000));
+                Equal("45.2 K", Format.TokenCount(45231));
                 return Format.TokenCount(563961963);
             });
-            Check("intervallo di reset leggibile", () =>
+            Check("reset interval readable", () =>
             {
                 Equal("3h 12m", Format.Delta(TimeSpan.FromMinutes(192)));
-                Equal("2g 4h", Format.Delta(TimeSpan.FromMinutes(2 * 1440 + 4 * 60)));
-                Equal("ora", Format.Delta(TimeSpan.FromMinutes(-5)));
+                Equal("2d 4h", Format.Delta(TimeSpan.FromMinutes(2 * 1440 + 4 * 60)));
+                Equal("<1m", Format.Delta(TimeSpan.FromMinutes(-5)));
                 return Format.Delta(TimeSpan.FromMinutes(192));
             });
 
             Console.WriteLine();
-            Console.WriteLine("Parsing delle risposte reali");
-            Check("pannello popolato da un payload realistico", () =>
+            Console.WriteLine("Parsing real responses");
+            Check("panel populated from a realistic payload", () =>
             {
                 var result = ParseRealistic();
                 if (result.Status != null) throw new Exception("status " + result.Status + ": " + result.Message);
@@ -99,23 +99,23 @@ namespace CommandCodeMonitor
                 Equal("20%", result.FiveHourPercent);
                 Equal("26%", result.WeeklyPercent);
                 Equal("13%", result.MonthlyPercent);
-                Equal("564,0 M", result.TokensValue);
+                Equal("564.0 M", result.TokensValue);
                 Equal("3120", result.RunsValue);
-                if (result.CreditsText == null || !result.CreditsText.StartsWith("Crediti:"))
-                    throw new Exception("riga crediti inattesa: " + result.CreditsText);
-                if (result.Tooltip.Length > 63) throw new Exception("tooltip troppo lungo: " + result.Tooltip.Length);
+                if (result.CreditsText == null || !result.CreditsText.StartsWith("Credits:"))
+                    throw new Exception("unexpected credits row: " + result.CreditsText);
+                if (result.Tooltip.Length > 63) throw new Exception("tooltip too long: " + result.Tooltip.Length);
                 return "5h " + result.FiveHourPercent + ", 7g " + result.WeeklyPercent +
                        ", 30g " + result.MonthlyPercent + ", " + result.TokensValue + ", " + result.RunsValue;
             });
-            Check("finestra non aperta non diventa 0%", () =>
+            Check("an unopened window does not become 0%", () =>
             {
                 var window = LimitWindow.ParseMilliseconds(Json.Parse("{\"cap\":0,\"used\":0}"));
-                if (window != null) throw new Exception("cap 0 deve dare null");
+                if (window != null) throw new Exception("a zero cap must yield null");
                 var clamped = LimitWindow.ParseMilliseconds(Json.Parse("{\"cap\":500,\"used\":750}"));
                 Equal(100.0, clamped.Percent);
-                return "cap 0 -> assente, uso oltre il cap -> 100%";
+                return "zero cap -> absent, usage over the cap -> 100%";
             });
-            Check("401 segnalato come accesso richiesto", () =>
+            Check("401 reported as authentication required", () =>
             {
                 using (var client = new LimitsClient(TestConfig()))
                 {
@@ -126,7 +126,7 @@ namespace CommandCodeMonitor
                     return "status " + result.Status;
                 }
             });
-            Check("rete assente segnalata come tale", () =>
+            Check("a missing network is reported as such", () =>
             {
                 using (var client = new LimitsClient(TestConfig()))
                 {
@@ -139,8 +139,8 @@ namespace CommandCodeMonitor
             });
 
             Console.WriteLine();
-            Console.WriteLine("Interfaccia");
-            Check("icona disegnata a 16x16", () =>
+            Console.WriteLine("Interface");
+            Check("icon drawn at 16x16", () =>
             {
                 using (var renderer = new IconRenderer(config))
                 using (var icon = renderer.DrawStatusIcon(40, 24))
@@ -150,11 +150,11 @@ namespace CommandCodeMonitor
                     for (var y = 0; y < bitmap.Height; y++)
                         for (var x = 0; x < bitmap.Width; x++)
                             if (bitmap.GetPixel(x, y).A > 40) visible++;
-                    if (visible < 30) throw new Exception("icona quasi vuota: " + visible + " pixel");
-                    return visible + " pixel visibili (" + bitmap.Width + "x" + bitmap.Height + ")";
+                    if (visible < 30) throw new Exception("icon nearly empty: " + visible + " pixel");
+                    return visible + " visible pixels (" + bitmap.Width + "x" + bitmap.Height + ")";
                 }
             });
-            Check("bolla disegnata", () =>
+            Check("bubble drawn", () =>
             {
                 using (var renderer = new IconRenderer(config))
                 using (var bitmap = new Bitmap(IconRenderer.PanelWidth, IconRenderer.PanelHeight))
@@ -163,7 +163,7 @@ namespace CommandCodeMonitor
                         renderer.DrawPanel(graphics, new Rectangle(0, 0, bitmap.Width, bitmap.Height),
                             ParseRealistic(), false);
                     if (bitmap.GetPixel(4, 4).ToArgb() == Color.Transparent.ToArgb())
-                        throw new Exception("sfondo non disegnato");
+                        throw new Exception("background not drawn");
                     if (renderPath != null)
                     {
                         var directory = Path.GetDirectoryName(Path.GetFullPath(renderPath));
@@ -174,11 +174,11 @@ namespace CommandCodeMonitor
                     return IconRenderer.PanelWidth + "x" + IconRenderer.PanelHeight + " px";
                 }
             });
-            Check("pulsante di chiusura cliccabile", () =>
+            Check("close button clickable", () =>
             {
                 var rect = IconRenderer.CloseRect();
-                if (rect.Width < 14 || rect.Height < 14) throw new Exception("area troppo piccola");
-                if (rect.Right > IconRenderer.PanelWidth) throw new Exception("fuori dal pannello");
+                if (rect.Width < 14 || rect.Height < 14) throw new Exception("area too small");
+                if (rect.Right > IconRenderer.PanelWidth) throw new Exception("outside the panel");
                 return rect.ToString();
             });
 
@@ -312,7 +312,7 @@ namespace CommandCodeMonitor
         private static int Finish()
         {
             Console.WriteLine();
-            Console.WriteLine("Risultato: " + _passed + " ok, " + _failed + " falliti");
+            Console.WriteLine("Result: " + _passed + " ok, " + _failed + " failed");
             return _failed > 0 ? 1 : 0;
         }
 

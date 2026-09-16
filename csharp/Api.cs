@@ -103,8 +103,8 @@ namespace CommandCodeMonitor
                         Source = credential.Source,
                         HttpStatus = error.Status,
                         FetchedAt = DateTime.UtcNow,
-                        Message = "Command Code ha rifiutato la credenziale (HTTP " + error.Status +
-                                  "). Rinnova la Provider-API key in config.json.",
+                        Message = "Command Code rejected the credential (HTTP " + error.Status +
+                                  "). Renew the Provider-API key in config.json.",
                     }.BuildDisplay(DateTime.UtcNow);
                 }
                 return new LimitsResult
@@ -113,7 +113,7 @@ namespace CommandCodeMonitor
                     Source = credential.Source,
                     HttpStatus = error.Status,
                     FetchedAt = DateTime.UtcNow,
-                    Message = "Errore HTTP " + error.Status + " da api.commandcode.ai.",
+                    Message = "HTTP error " + error.Status + " from api.commandcode.ai.",
                 }.BuildDisplay(DateTime.UtcNow);
             }
             catch (Exception error)
@@ -123,7 +123,7 @@ namespace CommandCodeMonitor
                     Status = "network_error",
                     Source = credential.Source,
                     FetchedAt = DateTime.UtcNow,
-                    Message = "Rete non raggiungibile su api.commandcode.ai. (" + Describe(error) + ")",
+                    Message = "Network unreachable at api.commandcode.ai. (" + Describe(error) + ")",
                 }.BuildDisplay(DateTime.UtcNow);
             }
 
@@ -139,7 +139,7 @@ namespace CommandCodeMonitor
                     Status = "http_error",
                     Source = credential.Source,
                     FetchedAt = DateTime.UtcNow,
-                    Message = "Risposta inattesa da /alpha/billing/credits (schema non riconosciuto).",
+                    Message = "Unexpected response from /alpha/billing/credits (unrecognised schema).",
                 }.BuildDisplay(DateTime.UtcNow);
             }
 

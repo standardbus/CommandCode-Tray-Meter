@@ -22,7 +22,7 @@ $launcher = Join-Path $root "src\launch-hidden.vbs"
 # shortcut at powershell.exe directly would flash a console window at logon.
 $targetPath = Join-Path $env:SystemRoot "System32\wscript.exe"
 $arguments = "`"$launcher`""
-$description = "CommandCode Monitor - limiti 5 ore e settimanali"
+$description = "CommandCode Monitor - 5-hour and weekly limits"
 
 function Get-StartupLinkPath {
   return (Join-Path ([Environment]::GetFolderPath("Startup")) "CommandCodeMonitor.lnk")
@@ -31,15 +31,15 @@ function Get-StartupLinkPath {
 $linkPath = Get-StartupLinkPath
 
 if (-not (Test-Path -LiteralPath $launcher)) {
-  throw "Launcher non trovato: $launcher"
+  throw "Launcher not found: $launcher"
 }
 
 if ($DryRun) {
-  Write-Output "Prova a vuoto (nessuna modifica). Verrebbero usati:"
+  Write-Output "Dry run (nothing is changed). These values would be used:"
   Write-Output "  collegamento   : $linkPath"
-  Write-Output "  eseguibile     : $targetPath"
+  Write-Output "  executable     : $targetPath"
   Write-Output "  argomenti      : $arguments"
-  Write-Output "  cartella lavoro: $root"
+  Write-Output "  working folder : $root"
   Write-Output "  descrizione    : $description"
   Write-Output "  launcher esiste: $(Test-Path -LiteralPath $launcher)"
   exit 0
@@ -59,23 +59,23 @@ try {
 Impossibile scrivere in "$linkPath".
 $($_.Exception.Message)
 
-La cartella di avvio automatico e fuori dai percorsi scrivibili da questo
-processo. Avvia lo script da una normale finestra PowerShell dell'utente
-(non da un ambiente con restrizioni di filesystem) e riprova.
+The startup folder is outside the paths this process may write to
+Run the script from a normal user PowerShell window (not from an
+environment with filesystem restrictions) and try again.
 "@
   exit 1
 }
 
 if (-not (Test-Path -LiteralPath $linkPath)) {
-  Write-Error "Il collegamento non risulta creato: $linkPath"
+  Write-Error "The shortcut was not created: $linkPath"
   exit 1
 }
 
 if (-not $Quiet) {
-  Write-Output "Avvio automatico attivato:"
+  Write-Output "Start-at-login enabled:"
   Write-Output "  collegamento : $linkPath"
   Write-Output "  launcher     : $launcher"
   Write-Output ""
-  Write-Output "Disattivalo con scripts\uninstall-autostart.ps1, oppure dalla voce"
-  Write-Output "'Avvia con Windows' nel menu dell'icona."
+  Write-Output "Turn it off with scripts\uninstall-autostart.ps1, or from the"
+  Write-Output "'Start with Windows' entry in the icon menu."
 }

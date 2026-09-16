@@ -70,7 +70,7 @@ namespace CommandCodeMonitor
         private static object ParseValue(string text, ref int index)
         {
             SkipWhitespace(text, ref index);
-            if (index >= text.Length) throw new FormatException("JSON troncato");
+            if (index >= text.Length) throw new FormatException("truncated JSON");
             char c = text[index];
             switch (c)
             {
@@ -88,7 +88,7 @@ namespace CommandCodeMonitor
         {
             if (index + literal.Length > text.Length ||
                 string.CompareOrdinal(text, index, literal, 0, literal.Length) != 0)
-                throw new FormatException("JSON inatteso in posizione " + index);
+                throw new FormatException("unexpected JSON at position " + index);
             index += literal.Length;
         }
 
@@ -103,14 +103,14 @@ namespace CommandCodeMonitor
                 SkipWhitespace(text, ref index);
                 string key = ParseString(text, ref index);
                 SkipWhitespace(text, ref index);
-                if (index >= text.Length || text[index] != ':') throw new FormatException("JSON: manca ':'");
+                if (index >= text.Length || text[index] != ':') throw new FormatException("JSON: missing ':'");
                 index++;
                 result[key] = ParseValue(text, ref index);
                 SkipWhitespace(text, ref index);
-                if (index >= text.Length) throw new FormatException("JSON troncato");
+                if (index >= text.Length) throw new FormatException("truncated JSON");
                 if (text[index] == ',') { index++; continue; }
                 if (text[index] == '}') { index++; return result; }
-                throw new FormatException("JSON: atteso ',' o '}'");
+                throw new FormatException("JSON: expected ',' or '}'");
             }
         }
 
@@ -124,16 +124,16 @@ namespace CommandCodeMonitor
             {
                 result.Add(ParseValue(text, ref index));
                 SkipWhitespace(text, ref index);
-                if (index >= text.Length) throw new FormatException("JSON troncato");
+                if (index >= text.Length) throw new FormatException("truncated JSON");
                 if (text[index] == ',') { index++; continue; }
                 if (text[index] == ']') { index++; return result; }
-                throw new FormatException("JSON: atteso ',' o ']'");
+                throw new FormatException("JSON: expected ',' or ']'");
             }
         }
 
         private static string ParseString(string text, ref int index)
         {
-            if (text[index] != '"') throw new FormatException("JSON: attesa stringa");
+            if (text[index] != '"') throw new FormatException("JSON: expected a string");
             index++;
             var builder = new StringBuilder();
             while (index < text.Length)
@@ -154,25 +154,25 @@ namespace CommandCodeMonitor
                     case 'r': builder.Append('\r'); break;
                     case 't': builder.Append('\t'); break;
                     case 'u':
-                        if (index + 4 > text.Length) throw new FormatException("JSON: \\u incompleto");
+                        if (index + 4 > text.Length) throw new FormatException("JSON: incomplete \\u");
                         builder.Append((char)Convert.ToInt32(text.Substring(index, 4), 16));
                         index += 4;
                         break;
-                    default: throw new FormatException("JSON: escape sconosciuto \\" + escape);
+                    default: throw new FormatException("JSON: unknown escape \\" + escape);
                 }
             }
-            throw new FormatException("JSON: stringa non chiusa");
+            throw new FormatException("JSON: unterminated string");
         }
 
         private static object ParseNumber(string text, ref int index)
         {
             int start = index;
             while (index < text.Length && "+-0123456789.eE".IndexOf(text[index]) >= 0) index++;
-            if (index == start) throw new FormatException("JSON: numero non valido");
+            if (index == start) throw new FormatException("JSON: invalid number");
             double value;
             if (!double.TryParse(text.Substring(start, index - start), NumberStyles.Float,
                     CultureInfo.InvariantCulture, out value))
-                throw new FormatException("JSON: numero non valido");
+                throw new FormatException("JSON: invalid number");
             return value;
         }
     }

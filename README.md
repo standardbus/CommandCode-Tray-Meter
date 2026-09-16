@@ -5,7 +5,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](#)
 [![Tests](https://img.shields.io/badge/tests-73%20Node%20%2B%2032%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
-[![Executable size](https://img.shields.io/badge/executable-79%20KB-4c8eda)](#)
+[![Executable size](https://img.shields.io/badge/executable-78%20KB-4c8eda)](#)
 
 [![Release](https://img.shields.io/github/v/release/standardbus/CommandCode-Tray-Meter?label=release&color=4c8eda&logo=github)](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)
 [![Stars](https://img.shields.io/github/stars/standardbus/CommandCode-Tray-Meter?label=stars&color=e3b341)](https://github.com/standardbus/CommandCode-Tray-Meter/stargazers)
@@ -18,13 +18,13 @@ with a graphical bubble that **opens instantly** and keeps updating while it sta
 on screen.
 
 > **[Download the executable](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)**
-> — a single 79 KB file, no runtime to install.
+> — a single 78 KB file, no runtime to install.
 
 Two ways to run it, sharing the same `config.json` and the same screens:
 
 | | **Executable** | **Scripts** |
 |---|---|---|
-| Files | `CommandCodeMonitor.exe` (79 KB) | `src/tray.ps1` + `src/session.mjs` |
+| Files | `CommandCodeMonitor.exe` (78 KB) | `src/tray.ps1` + `src/session.mjs` |
 | Requires | Windows 10/11 only | Node.js 18+ and PowerShell |
 | Logic | C# (`csharp/`) | Node (`src/`) |
 | For | anyone who wants one file to launch | anyone who wants to change the code |

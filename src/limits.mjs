@@ -60,12 +60,12 @@ const CREDENTIAL_KEYS = ["command-code", "commandcode"];
 const TOKEN_FIELDS = ["access", "apiKey", "key"];
 
 const MONTHS_SHORT = [
-  "gen", "feb", "mar", "apr", "mag", "giu",
-  "lug", "ago", "set", "ott", "nov", "dic",
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
-const DAYS_SHORT = ["dom", "lun", "mar", "mer", "gio", "ven", "sab"];
+const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAYS_LONG = [
-  "domenica", "lunedi", "martedi", "mercoledi", "giovedi", "venerdi", "sabato",
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 ];
 
 // --- small helpers ---------------------------------------------------------
@@ -122,15 +122,15 @@ function toIsoOrUndefined(value) {
 
 // --- formatting ------------------------------------------------------------
 
-/** `"3h 12m"`, `"2g 4h"`, `"45m"`, `"ora"`. */
+/** `"3h 12m"`, `"2d 4h"`, `"45m"`, `"<1m"`. */
 export function formatDelta(ms) {
   if (!Number.isFinite(ms)) return "-";
-  if (ms <= 0) return "ora";
+  if (ms <= 0) return "<1m";
   const totalMinutes = Math.floor(ms / 60000);
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const minutes = totalMinutes % 60;
-  if (days > 0) return hours > 0 ? `${days}g ${hours}h` : `${days}g`;
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
   if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
   if (totalMinutes > 0) return `${totalMinutes}m`;
   return "<1m";
@@ -149,7 +149,7 @@ export function formatPercent(percent) {
  * locale (Italian here): the raw API values carry nine decimals and render as
  * unreadable noise like `2.000223421`.
  */
-export function formatAmount(value, locale = "it-IT") {
+export function formatAmount(value, locale = "en-US") {
   const numeric = toFiniteNumber(value);
   if (numeric === undefined) return "-";
   const rounded = Math.round(numeric * 100) / 100;
@@ -160,14 +160,14 @@ export function formatAmount(value, locale = "it-IT") {
   }
 }
 
-/** `"2 / 14"` â€” the used-against-cap pair shown under each bar. */
-export function formatUsagePair(used, cap, locale = "it-IT") {
+/** `"2 / 14"` — the used-against-cap pair shown under each bar. */
+export function formatUsagePair(used, cap, locale = "en-US") {
   return `${formatAmount(used, locale)} / ${formatAmount(cap, locale)}`;
 }
 
 /**
- * Compact absolute time for a reset: `"20:00"`, `"domani 20:00"`,
- * `"lun 20:00"`, `"12 set 09:30"`.
+ * Compact absolute time for a reset: `"20:00"`, `"tomorrow 20:00"`,
+ * `"Mon 20:00"`, `"12 Sep 09:30"`.
  */
 export function formatResetAt(iso, now = Date.now()) {
   const parsed = Date.parse(iso);
@@ -178,7 +178,7 @@ export function formatResetAt(iso, now = Date.now()) {
   const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const dayDiff = Math.round((startOfDay(date) - startOfDay(reference)) / 86400000);
   if (dayDiff <= 0) return hhmm;
-  if (dayDiff === 1) return `domani ${hhmm}`;
+  if (dayDiff === 1) return `tomorrow ${hhmm}`;
   if (dayDiff < 7) return `${DAYS_SHORT[date.getDay()]} ${hhmm}`;
   return `${date.getDate()} ${MONTHS_SHORT[date.getMonth()]} ${hhmm}`;
 }
@@ -193,7 +193,7 @@ export function formatClock(ms) {
     .join(":");
 }
 
-/** Long-form reset timestamp used in the tooltip: `"lunedi 20:00"`. */
+/** Long-form reset timestamp used in the tooltip: `"Monday 20:00"`. */
 export function formatLongResetAt(iso, now = Date.now()) {
   const parsed = Date.parse(iso);
   if (!Number.isFinite(parsed)) return "-";
@@ -327,14 +327,14 @@ export function resolveCredential(config = {}, options = {}) {
       error: STATUS.AUTH_NEEDED,
       source: "none",
       message:
-        "Accesso Command Code scaduto. Apri il CLI e ripeti l'accesso, oppure incolla una Provider-API key in config.json.",
+        "Command Code session expired. Open the CLI and sign in again, or paste a Provider-API key into config.json.",
     };
   }
   return {
     error: STATUS.AUTH_NEEDED,
     source: "none",
     message:
-      "Nessuna credenziale Command Code. Incolla una Provider-API key in config.json (commandcode.ai/studio/provider) o imposta COMMANDCODE_API_KEY.",
+      "No Command Code credentials. Paste a Provider-API key into config.json (commandcode.ai/studio/provider) or set COMMANDCODE_API_KEY.",
   };
 }
 
@@ -511,11 +511,11 @@ export function computeMonthlyWindow(credits, period, spend) {
 }
 
 /**
- * `"564,0 M"`, `"1,2 Mrd"` — token counts run to hundreds of millions and are
+ * `"564.0 M"`, `"1.2 B"` — token counts run to hundreds of millions and are
  * unreadable in full, so large values are scaled and the exact figure is kept in
  * the tooltip.
  */
-export function formatTokenCount(value, locale = "it-IT") {
+export function formatTokenCount(value, locale = "en-US") {
   const numeric = toFiniteNumber(value);
   if (numeric === undefined || numeric < 0) return "-";
   const scale = (divisor, suffix, decimals) => {
@@ -525,17 +525,21 @@ export function formatTokenCount(value, locale = "it-IT") {
       maximumFractionDigits: decimals,
     })} ${suffix}`;
   };
-  if (numeric >= 1e9) return scale(1e9, "Mrd", 2);
+  if (numeric >= 1e9) return scale(1e9, "B", 2);
   if (numeric >= 1e6) return scale(1e6, "M", 1);
   if (numeric >= 1e3) return scale(1e3, "K", 1);
   return numeric.toLocaleString(locale);
 }
 
-/** `"3.120"` with locale grouping. */
-export function formatCount(value, locale = "it-IT") {
+/**
+ * `"3120"`. Deliberately ungrouped so it matches the C# implementation, which
+ * renders run counts the same way; a thousands separator would depend on the
+ * locale data bundled with the runtime, and the two must not drift.
+ */
+export function formatCount(value) {
   const numeric = toFiniteNumber(value);
   if (numeric === undefined || numeric < 0) return "-";
-  return Math.round(numeric).toLocaleString(locale);
+  return String(Math.round(numeric));
 }
 
 /** Build the `display` block the tray renders (countdowns, clock times, amounts). */
@@ -560,9 +564,9 @@ export function buildDisplay(result, now = Date.now()) {
   }
   if (result.credits) {
     display.creditsPercent = formatPercent(result.credits.percent);
-    display.creditsText = `Crediti: ${formatAmount(result.credits.used)} su ${formatAmount(
+    display.creditsText = `Credits: ${formatAmount(result.credits.used)} of ${formatAmount(
       result.credits.limit,
-    )} USD  (${formatAmount(result.credits.remaining)} rimasti)`;
+    )} USD  (${formatAmount(result.credits.remaining)} left)`;
   }
   if (result.tokens) {
     display.tokensValue = formatTokenCount(result.tokens.total);
@@ -573,7 +577,7 @@ export function buildDisplay(result, now = Date.now()) {
   if (result.runs) {
     display.runsValue = formatCount(result.runs.total);
     if (result.runs.failed !== null && result.runs.failed > 0) {
-      display.runsDetail = `${formatCount(result.runs.failed)} falliti`;
+      display.runsDetail = `${formatCount(result.runs.failed)} failed`;
     } else if (result.runs.successRate !== null) {
       display.runsDetail = `${formatAmount(result.runs.successRate)}% riusciti`;
     }
@@ -584,7 +588,7 @@ export function buildDisplay(result, now = Date.now()) {
 /** Compact tooltip text (Windows caps a tray tooltip at 63 characters). */
 export function buildTooltip(result) {
   if (result.status) {
-    const label = result.status === STATUS.AUTH_NEEDED ? "accesso richiesto" : "dati non disponibili";
+    const label = result.status === STATUS.AUTH_NEEDED ? "authentication required" : "data unavailable";
     return `Command Code: ${label}`;
   }
   const parts = [];
@@ -594,7 +598,7 @@ export function buildTooltip(result) {
   }
   if (result.display?.weeklyPercent) parts.push(`7g ${result.display.weeklyPercent}`);
   if (result.display?.monthlyPercent) parts.push(`30g ${result.display.monthlyPercent}`);
-  if (parts.length === 0) return "Command Code: nessun limite attivo";
+  if (parts.length === 0) return "Command Code: no active limits";
   return `Command Code ${parts.join(" | ")}`;
 }
 
@@ -688,7 +692,7 @@ export async function fetchLimits(config, options = {}) {
         status: STATUS.AUTH_NEEDED,
         httpStatus: status,
         message:
-          "Command Code ha rifiutato la credenziale (HTTP " +
+          "Command Code rejected the credential (HTTP " +
           status +
           "). Rinnova la Provider-API key in config.json.",
       };
@@ -699,8 +703,8 @@ export async function fetchLimits(config, options = {}) {
       httpStatus: status,
       message:
         status === undefined
-          ? "Rete non raggiungibile su api.commandcode.ai."
-          : `Errore HTTP ${status} da api.commandcode.ai.`,
+          ? "Network unreachable at api.commandcode.ai."
+          : `HTTP error ${status} from api.commandcode.ai.`,
     };
   }
 
@@ -713,7 +717,7 @@ export async function fetchLimits(config, options = {}) {
     return {
       ...base,
       status: STATUS.HTTP_ERROR,
-      message: "Risposta inattesa da /alpha/billing/credits (schema non riconosciuto).",
+      message: "Unexpected response from /alpha/billing/credits (unrecognised schema).",
     };
   }
 

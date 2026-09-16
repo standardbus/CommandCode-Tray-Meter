@@ -14,7 +14,7 @@ $tests = Join-Path $PSScriptRoot "tray.tests.ps1"
 
 $pester = Get-Module -ListAvailable Pester | Sort-Object Version -Descending | Select-Object -First 1
 if (-not $pester) {
-  Write-Output "Pester non installato: salto i test di disegno (test/tray.tests.ps1)."
+  Write-Output "Pester is not installed: skipping the drawing tests (test/tray.tests.ps1)."
   Write-Output "Installalo con:  Install-Module Pester -Scope CurrentUser -Force"
   exit 0
 }
@@ -23,7 +23,7 @@ Write-Output ("Pester {0} - eseguo {1}" -f $pester.Version, (Split-Path -Leaf $t
 Import-Module Pester -MinimumVersion $pester.Version -Force
 $result = Invoke-Pester -Path $tests -PassThru
 
-Write-Output ("`n{0} test, {1} superati, {2} falliti, {3} saltati" -f `
+Write-Output ("`n{0} tests, {1} passed, {2} failed, {3} skipped" -f `
   $result.TotalCount, $result.PassedCount, $result.FailedCount, $result.SkippedCount)
 
 if ($result.FailedCount -gt 0) { exit 1 }

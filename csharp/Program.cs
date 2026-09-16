@@ -24,10 +24,10 @@ namespace CommandCodeMonitor
             if (HasFlag(args, "--help"))
             {
                 Console.WriteLine("CommandCode Monitor");
-                Console.WriteLine("  CommandCodeMonitor.exe                 avvia l'icona nella tray");
-                Console.WriteLine("  CommandCodeMonitor.exe --selftest      esegue i controlli offline");
-                Console.WriteLine("  CommandCodeMonitor.exe --config PATH   usa un file di configurazione");
-                Console.WriteLine("  CommandCodeMonitor.exe --render OUT    disegna la bolla in un PNG");
+                Console.WriteLine("  CommandCodeMonitor.exe                 starts the tray icon");
+                Console.WriteLine("  CommandCodeMonitor.exe --selftest      runs the offline checks");
+                Console.WriteLine("  CommandCodeMonitor.exe --config PATH   uses a configuration file");
+                Console.WriteLine("  CommandCodeMonitor.exe --render OUT    draws the bubble into a PNG");
                 return;
             }
 
@@ -52,7 +52,7 @@ namespace CommandCodeMonitor
                 }
                 catch (ConfigException error)
                 {
-                    MessageBox.Show(error.Message + "\n\nPercorso: " + configPath,
+                    MessageBox.Show(error.Message + "\n\nPath: " + configPath,
                         "CommandCode Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
