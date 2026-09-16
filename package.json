@@ -1,0 +1,26 @@
+{
+  "name": "commandcode-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Windows tray monitor for Command Code usage limits: standalone exe plus a Node/PowerShell implementation",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test/run.mjs && powershell -NoProfile -ExecutionPolicy Bypass -File test/run-selftest.ps1",
+    "test:node": "node test/run.mjs",
+    "test:pester": "powershell -NoProfile -ExecutionPolicy Bypass -File test/run-selftest.ps1",
+    "test:live": "powershell -Sta -NoProfile -ExecutionPolicy Bypass -File test/live-update.ps1",
+    "build:exe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-exe.ps1",
+    "build:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1",
+    "start": "powershell -Sta -NoProfile -ExecutionPolicy Bypass -File src/tray.ps1",
+    "check": "node src/fetch.mjs --auth-only",
+    "once": "node src/fetch.mjs",
+    "session": "node src/session.mjs",
+    "fixture": "node scripts/fixture-server.mjs",
+    "selftest": "powershell -Sta -NoProfile -ExecutionPolicy Bypass -File scripts/selftest.ps1",
+    "autostart:on": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-autostart.ps1",
+    "autostart:off": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-autostart.ps1"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "$comment": "Copy this file to config.json and paste your Provider-API key into apiKey. Create and manage the key at https://commandcode.ai/studio/provider . config.json must never be committed.",
+
+  "apiKey": "",
+
+  "$comment_endpoints": "The /alpha surface is not publicly documented: if Command Code changes it, fix the paths here without touching the code.",
+  "endpoints": {
+    "baseUrl": "https://api.commandcode.ai",
+    "whoamiPath": "/alpha/whoami",
+    "creditsPath": "/alpha/billing/credits",
+    "subscriptionsPath": "/alpha/billing/subscriptions",
+    "usageSummaryPath": "/alpha/usage/summary"
+  },
+
+  "$comment_refresh": "Background polling interval. Opening the bubble never waits: it reads the last known value immediately and replaces it when the new one arrives.",
+  "refreshSeconds": 120,
+
+  "$comment_thresholds": "Percentage thresholds used for the icon and bar colours.",
+  "thresholds": {
+    "warn": 60,
+    "critical": 85
+  },
+
+  "$comment_ui": "iconMetric chooses which window the icon ring follows: fiveHour, weekly or monthly. The dot always tracks the weekly window.",
+  "ui": {
+    "iconMetric": "fiveHour",
+    "monochrome": false,
+    "showTooltip": true
+  },
+
+  "$comment_creditFiles": "Alternative credential sources (read only, never written). Used only when apiKey and COMMANDCODE_API_KEY are empty.",
+  "creditFiles": [
+    "~/.commandcode/auth.json",
+    "~/.pi/agent/auth.json"
+  ],
+
+  "requestTimeoutMs": 8000
+}

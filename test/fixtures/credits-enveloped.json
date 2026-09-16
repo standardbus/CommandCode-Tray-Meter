@@ -1,0 +1,9 @@
+{
+  "data": {
+    "credits": { "monthlyCredits": 20 },
+    "windowLimits": {
+      "fiveHour": { "cap": 100, "used": 25 }
+    },
+    "limited": false
+  }
+}

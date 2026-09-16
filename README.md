@@ -1,0 +1,288 @@
+# CommandCode Tray Meter
+
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](#)
+[![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white)](#)
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](#)
+[![Tests](https://img.shields.io/badge/tests-73%20Node%20%2B%2032%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
+[![Executable size](https://img.shields.io/badge/executable-79%20KB-4c8eda)](#)
+
+[![Release](https://img.shields.io/github/v/release/standardbus/CommandCode-Tray-Meter?label=release&color=4c8eda&logo=github)](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)
+[![Stars](https://img.shields.io/github/stars/standardbus/CommandCode-Tray-Meter?label=stars&color=e3b341)](https://github.com/standardbus/CommandCode-Tray-Meter/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/standardbus/CommandCode-Tray-Meter?label=last%20commit)](https://github.com/standardbus/CommandCode-Tray-Meter/commits)
+[![Top language](https://img.shields.io/github/languages/top/standardbus/CommandCode-Tray-Meter?label=language)](https://github.com/standardbus/CommandCode-Tray-Meter)
+
+A minimal usage monitor for **Command Code**: a Windows notification-area icon
+(next to the clock) that shows how much of each limit window you have consumed,
+with a graphical bubble that **opens instantly** and keeps updating while it stays
+on screen.
+
+> **[Download the executable](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)**
+> — a single 79 KB file, no runtime to install.
+
+Two ways to run it, sharing the same `config.json` and the same screens:
+
+| | **Executable** | **Scripts** |
+|---|---|---|
+| Files | `CommandCodeMonitor.exe` (79 KB) | `src/tray.ps1` + `src/session.mjs` |
+| Requires | Windows 10/11 only | Node.js 18+ and PowerShell |
+| Logic | C# (`csharp/`) | Node (`src/`) |
+| For | anyone who wants one file to launch | anyone who wants to change the code |
+
+---
+
+## Screenshots
+
+| Limit bubble | Warning and critical colours | Live update |
+|---|---|---|
+| ![Limit bubble](screenshots/popup.png) | ![Warning thresholds](screenshots/popup-warning.png) | ![Live update](screenshots/popup-live-after.png) |
+
+| Close button (the x highlights) | No credentials yet | Rendering from the executable |
+|---|---|---|
+| ![Close button](screenshots/popup-close-hover.png) | ![Authentication required](screenshots/popup-auth-needed.png) | ![Bubble drawn by the C# build](screenshots/popup-csharp.png) |
+
+The two rolling windows are shown immediately; the rest of the bubble fills in
+while it is already on screen — on the left the freshly read value, on the right
+the hydrated one.
+
+| Before hydration | After hydration |
+|---|---|
+| ![Before](screenshots/popup-live-before.png) | ![After](screenshots/popup-live-after.png) |
+
+---
+
+## Quick start (executable)
+
+```powershell
+# 1. download CommandCodeMonitor.exe from the release, or build it:
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-exe.ps1
+
+# 2. put the key into the configuration
+notepad config.json          # paste your Provider-API key into "apiKey"
+
+# 3. run it
+.\CommandCodeMonitor.exe
+```
+
+`CommandCodeMonitor.exe` and `config.json` in the same folder are all you need:
+**no runtime to install**, no companion script, nothing to unpack. The executable
+is compiled with the C# compiler bundled with .NET Framework 4.8, which is
+present on every Windows 10 and 11 machine.
+
+Useful commands:
+
+```powershell
+.\CommandCodeMonitor.exe --selftest          # offline checks, exit 0 when everything passes
+.\CommandCodeMonitor.exe --render out.png    # draw the bubble into a PNG
+.\CommandCodeMonitor.exe --demo              # open the bubble by itself, then exit
+.\CommandCodeMonitor.exe --help
+```
+
+Start-at-login is enabled from the **Start with Windows** entry in the icon menu
+(it writes to `HKCU\...\CurrentVersion\Run`, no privileges required).
+
+---
+
+## Quick start (scripts)
+
+The script implementation needs Node.js 18+; PowerShell 5.1 already ships with
+Windows.
+
+```powershell
+Copy-Item config.example.json config.json
+notepad config.json          # paste your key
+npm start
+```
+
+---
+
+## What it shows
+
+![Limit bubble](screenshots/popup.png)
+
+| Element | Meaning |
+|---|---|
+| Icon **ring** | the window selected by `ui.iconMetric` (default: 5 hours) |
+| **Dot** in the bottom-right corner | percentage used of the **weekly** window |
+| Bubble header | active plan and the close button (the x in the top-right corner) |
+| **5 hours** bar | `used / cap`, percentage and reset (`in 3h 12m (20:00)`) |
+| **Weekly** bar | same, against the 7-day cap |
+| **Monthly** bar | billing-cycle credit, with the renewal date |
+| **Tokens used** | cycle total (`564.0 M`) |
+| **Runs** | number of executions in the cycle (`3120`) |
+| **Credits** row | spent against available, in USD, with what is left |
+
+Colours follow configurable thresholds: **green** below 60%, **amber** from 60%,
+**red** from 85%.
+
+### Where every number comes from
+
+Everything comes from the four calls the monitor already makes; no value is
+invented or estimated.
+
+| Value | Source |
+|---|---|
+| 5 hours, weekly | `windowLimits.fiveHour` / `.weekly` from `/alpha/billing/credits` |
+| Monthly | **derived**: cycle spend (`totalCost` from `/alpha/usage/summary`) plus what is left in the pools from `/alpha/billing/credits` gives the monthly ceiling |
+| Tokens, runs | `totalTokens` and `totalCount` from `/alpha/usage/summary` |
+| Monthly reset | `currentPeriodEnd` from `/alpha/billing/subscriptions` |
+
+The monthly window does not exist in the API: it is **derived**, and both the
+Node tests and the executable self-test compare it against the value Command Code
+Studio shows for the same account.
+
+### Closing the bubble
+
+The bubble closes in three ways, all equivalent:
+
+- the **x** in the top-right corner (it highlights on hover);
+- a **click outside** the bubble, anywhere on screen;
+- the **Esc** key.
+
+Both implementations install a global `WH_MOUSE_LL` hook while the bubble is
+open, because a borderless window never receives clicks that land elsewhere and
+never takes mouse capture. The hook is removed on close.
+
+### Why opening is instant
+
+The two rolling windows come from a single fast call (about 50 ms), while the
+USD credits row needs two slow calls (`subscriptions` around 1500 ms and
+`usage/summary` around 700-1500 ms). The monitor shows the windows immediately
+from the value it already has and **hydrates the rest afterwards**, while the
+bubble is already on screen: opening stays under 150 ms instead of waiting for
+the 2.5-second tail.
+
+---
+
+## Configuration
+
+Every key is optional except `apiKey`. The same keys apply to the executable and
+to the scripts.
+
+| Key | Default | Description |
+|---|---|---|
+| `apiKey` | `""` | Provider-API key |
+| `endpoints.baseUrl` | `https://api.commandcode.ai` | canonical host |
+| `endpoints.*Path` | `/alpha/...` | per-endpoint overrides |
+| `refreshSeconds` | `120` | background polling interval (minimum 15) |
+| `thresholds.warn` | `60` | amber threshold |
+| `thresholds.critical` | `85` | red threshold |
+| `ui.iconMetric` | `fiveHour` | window followed by the ring: `fiveHour`, `weekly`, `monthly` |
+| `ui.monochrome` | `false` | grey icon |
+| `ui.showTooltip` | `true` | tooltip on the icon |
+| `requestTimeoutMs` | `8000` | request timeout |
+
+> `ui.iconMetric` is read at startup: restart the monitor after changing it.
+
+> **Note:** `/alpha/*` is not publicly documented and may change without notice.
+> That is why every path can be overridden from `config.json` under `endpoints`:
+> if Command Code changes something, you fix the JSON without touching the code.
+
+### Credentials
+
+Lookup order:
+
+1. the `COMMANDCODE_API_KEY` environment variable
+2. `apiKey` in `config.json`
+3. `~/.commandcode/auth.json` (keys `command-code` / `commandcode` / `apiKey`)
+4. `~/.pi/agent/auth.json` (only `command-code` / `commandcode`)
+
+Files 3 and 4 are **read and never written**: token renewal belongs to the CLI
+that owns the file, and rewriting it from here would corrupt state shared with
+the other tools on the machine. An expired token is reported, not force-renewed.
+
+If you install the Command Code CLI, the monitor finds it on its own with no
+changes.
+
+> `config.json` holds a key: **never commit it**. It is already in `.gitignore`,
+> and the repository only ships `config.example.json` with the field empty.
+
+---
+
+## Building the executable
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-exe.ps1
+```
+
+The script generates the icon from source (`scripts/make-icon.ps1`), compiles
+`csharp/*.cs` into `CommandCodeMonitor.exe` and runs the self-test. Options:
+`-SkipSelfTest`, `-OutputPath`.
+
+The icon is drawn with GDI+ during the build rather than committed as a binary
+file: the repository carries no asset nobody can regenerate.
+
+---
+
+## Tests
+
+```powershell
+npm test              # Node + Pester suites (script implementation)
+npm run test:node     # logic and credentials (73 tests)
+npm run test:pester   # drawing, thresholds, closing and icon (32 tests)
+npm run build:exe     # builds the executable and runs its self-test (13 checks)
+```
+
+To try everything **without credentials**, using a local server that mimics the
+API and increments the values on every request:
+
+```powershell
+npm run fixture
+node src\fetch.mjs --url http://127.0.0.1:8787 --pretty
+npm run test:live
+```
+
+---
+
+## Troubleshooting
+
+**The icon does not appear.** On Windows 11 look in the hidden flyout (`^`): drag
+it out once and Windows remembers the position. For the executable, check that you
+launched it with `config.json` in the same folder.
+
+**"Authentication required" in the bubble.** The key is missing or was rejected.
+Check `apiKey`, then run `CommandCodeMonitor.exe --selftest` (or
+`node src\fetch.mjs --pretty`) for the exact error. A `401`/`403` is treated as
+final: the monitor does not retry blindly.
+
+**"Not updated".** The network or the API is not responding: the bubble keeps
+showing the last good values.
+
+**Only one icon, always.** The executable uses a named mutex, the script version
+a file lock: a second instance exits immediately. If you are sure otherwise, close
+everything and delete `.cache\session.lock`.
+
+**Values frozen.** Limits only move when you use Command Code: the windows start
+at the first request and stay at zero until then.
+
+---
+
+## Layout
+
+```
+CommandCodeMonitor.exe     the executable: everything is in here
+config.example.json        configuration template
+csharp/                    C# sources of the executable
+src/                       equivalent Node/PowerShell implementation
+scripts/                   build, icon, autostart, self-test, fixture server
+test/                      Node + Pester suites and the live harness
+screenshots/               images used by this README
+```
+
+Both implementations share `config.json`, the screens and the number formatting;
+the executable self-test compares its values against the ones the Node version
+produces from the same payload, so the two cannot silently diverge.
+
+---
+
+## Uninstalling
+
+For the executable: quit from the icon menu, turn off **Start with Windows**, then
+delete the folder. No registry changes, no service installed.
+
+For the script version:
+
+```powershell
+npm run autostart:off
+Remove-Item -Recurse -Force .cache
+```

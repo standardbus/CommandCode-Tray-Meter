@@ -1,0 +1,9 @@
+# Normalizza gli a-capo nel repository: LF salvato, LF al checkout.
+# Evita che core.autocrlf riscriva i file a ogni clone.
+* text=auto eol=lf
+
+# Binari: nessuna conversione
+*.png binary
+*.ico binary
+*.exe binary
+*.vsix binary

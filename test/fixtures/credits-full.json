@@ -1,0 +1,9 @@
+{
+  "credits": { "monthlyCredits": 20, "purchasedCredits": 5, "freeCredits": 1 },
+  "windowLimits": {
+    "fiveHour": { "cap": 100, "used": 40, "resetAt": "2026-08-15T20:00:00.000Z" },
+    "weekly": { "cap": 500, "used": 25, "resetAt": "2026-08-18T00:00:00.000Z" },
+    "exceeded": null,
+    "limited": false
+  }
+}

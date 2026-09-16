@@ -1,0 +1,14 @@
+# Credenziali locali: non committare MAI
+config.json
+
+# Stato di runtime
+.cache/
+*.log
+
+# Artefatti di build: si rigenerano con scripts/build-exe.ps1
+CommandCodeMonitor.exe
+csharp/app.ico
+
+# Screenshot con dati privati (desktop, chat, sessione): non pubblicare mai
+screenshots/exe-bubble.png
+screenshots/exe-bubble-on-screen.png
