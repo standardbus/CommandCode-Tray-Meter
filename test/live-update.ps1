@@ -155,7 +155,7 @@ try {
   Invoke-LiveUpdateCheck -WaitMs $WaitMs
   Write-Output "esito: $($script:LiveUpdateResult)"
 } catch {
-  Write-Output "RESULT: FAIL - eccezione: $($_.Exception.Message)"
+  Write-Output "RESULT: FAIL - exception: $($_.Exception.Message)"
   $script:LiveUpdateResult = 1
 } finally {
   if ($stub -and -not $stub.HasExited) { Stop-Process -Id $stub.Id -Force -ErrorAction SilentlyContinue }

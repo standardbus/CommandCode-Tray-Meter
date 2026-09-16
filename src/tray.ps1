@@ -1107,7 +1107,7 @@ function Add-MenuItem {
 }
 
 [void](Add-MenuItem -Text "Show limits" -OnClick { Show-LimitsPopup })
-[void](Add-MenuItem -Text "Aggiorna ora" -OnClick {
+[void](Add-MenuItem -Text "Refresh now" -OnClick {
   Start-LimitsUpdate
   if ($script:Popup.Visible) { $script:OwnerDrawItem.Invalidate() }
 })
@@ -1118,7 +1118,7 @@ function Add-MenuItem {
   }
   if (Test-Path $ConfigPath) { Start-Process notepad.exe $ConfigPath } else { Write-TrayError "config.json missing" }
 })
-[void](Add-MenuItem -Text "Impostazioni Command Code (Studio)" -OnClick {
+[void](Add-MenuItem -Text "Command Code settings (Studio)" -OnClick {
   Start-Process "https://commandcode.ai/studio/provider"
 })
 $script:AutostartItem = Add-MenuItem -Text "Start with Windows" -OnClick {

@@ -1,10 +1,10 @@
 # CommandCode Tray Meter
 
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](#)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0078D6?logo=windows&logoColor=white)](#)
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white)](#)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-73%20Node%20%2B%2032%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
+[![Tests](https://img.shields.io/badge/tests-93%20Node%20%2B%2032%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
 [![Executable size](https://img.shields.io/badge/executable-78%20KB-4c8eda)](#)
 
 [![Release](https://img.shields.io/github/v/release/standardbus/CommandCode-Tray-Meter?label=release&color=4c8eda&logo=github)](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)
@@ -15,19 +15,24 @@
 A minimal usage monitor for **Command Code**: a Windows notification-area icon
 (next to the clock) that shows how much of each limit window you have consumed,
 with a graphical bubble that **opens instantly** and keeps updating while it stays
-on screen.
+on screen. On Linux and macOS the same readings are available as a terminal
+meter, `ccmeter`.
 
 > **[Download the executable](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)**
-> — a single 78 KB file, no runtime to install.
+> — a single 78 KB file, no runtime to install — or the
+> [terminal meter](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)
+> for Linux and macOS.
 
-Two ways to run it, sharing the same `config.json` and the same screens:
+Three ways to run it, sharing the same `config.json`, the same credentials and
+the same numbers:
 
-| | **Executable** | **Scripts** |
-|---|---|---|
-| Files | `CommandCodeMonitor.exe` (78 KB) | `src/tray.ps1` + `src/session.mjs` |
-| Requires | Windows 10/11 only | Node.js 18+ and PowerShell |
-| Logic | C# (`csharp/`) | Node (`src/`) |
-| For | anyone who wants one file to launch | anyone who wants to change the code |
+| | **Executable** | **Scripts** | **Terminal meter** |
+|---|---|---|---|
+| Files | `CommandCodeMonitor.exe` (78 KB) | `src/tray.ps1` + `src/session.mjs` | `bin/ccmeter` |
+| Platform | Windows 10/11 | Windows 10/11 | Linux and macOS |
+| Requires | nothing else | Node.js 18+ and PowerShell | Node.js 18+ |
+| Logic | C# (`csharp/`) | Node (`src/`) | Node (`src/`) |
+| For | a tray icon from one file | changing the tray code | servers, tmux, status bars |
 
 ---
 
@@ -93,6 +98,77 @@ Copy-Item config.example.json config.json
 notepad config.json          # paste your key
 npm start
 ```
+
+---
+
+## Quick start (Linux and macOS)
+
+The terminal meter needs Node.js 18 or newer and nothing else: no build step, no
+dependencies, no daemon.
+
+```bash
+# 1. download commandcode-meter-linux.tar.gz (or -macos) from the release
+tar -xzf commandcode-meter-*.tar.gz
+cd commandcode-meter
+
+# 2. put the key into the configuration
+cp config.example.json config.json
+$EDITOR config.json          # paste your Provider-API key into "apiKey"
+
+# 3. run it
+./bin/ccmeter
+```
+
+```
+Command Code · individual-goat
+
+  5 hours  18%  ████░░░░░░░░░░░░░░░░  2.57 / 14      reset in 2h 21m (12:01)
+  Weekly   56%  ███████████░░░░░░░░░  19.45 / 35     reset in 1d 13h (tomorrow 23:38)
+  Monthly  28%  ██████░░░░░░░░░░░░░░  19.39 / 69.95  reset in 24d 13h (10 Oct 23:25)
+
+  Tokens   1.14 B
+  Runs     5977
+  Credits  19.39 of 69.95 USD  (50.55 left)
+  Updated  09:39:52
+```
+
+Useful options:
+
+```bash
+./bin/ccmeter --watch            # redraw on the configured interval
+./bin/ccmeter --watch 30         # ...or on one you choose
+./bin/ccmeter --compact          # one line, for a tmux status bar or a prompt
+./bin/ccmeter --json             # the raw payload, for scripting
+./bin/ccmeter --auth-only        # which credential source was found, no network call
+./bin/ccmeter --help
+```
+
+With `--compact` you get a single line you can drop into a status bar:
+
+```
+CC 5h 18% · 7d 56% · 30d 28% · 1.14 B · 5977
+```
+
+To have `ccmeter` on your `PATH`, symlink it rather than moving it, so the
+relative imports keep resolving:
+
+```bash
+ln -s "$PWD/bin/ccmeter" ~/.local/bin/ccmeter
+```
+
+Colours follow the same thresholds as the tray (green below 60%, amber from 60%,
+red from 85%) and are emitted only when stdout is a terminal; `NO_COLOR=1` or
+`--no-color` turns them off, and `--ascii` draws the bars with `#` and `-`
+instead of blocks. Exit codes: `0` for data or a non-fatal provider error, `2`
+when authentication is needed, `3` when the command could not run at all.
+
+The same payload powers all three implementations: `ccmeter` and the Windows
+tray import the same `src/limits.mjs`, so a value cannot be computed two
+different ways.
+
+> The tray icon itself is Windows-only: it is built on WinForms, the Windows
+> notification area and global mouse hooks. A native menu-bar equivalent for
+> Linux and macOS is a separate piece of work, not a port of this one.
 
 ---
 
@@ -217,11 +293,15 @@ file: the repository carries no asset nobody can regenerate.
 ## Tests
 
 ```powershell
-npm test              # Node + Pester suites (script implementation)
-npm run test:node     # logic and credentials (73 tests)
+npm test              # Node + Pester suites (tray and terminal meter)
+npm run test:node     # logic, credentials and CLI rendering (93 tests)
 npm run test:pester   # drawing, thresholds, closing and icon (32 tests)
 npm run build:exe     # builds the executable and runs its self-test (13 checks)
 ```
+
+The Node suite is the one that runs on Linux and macOS too, which is how
+`bin/ccmeter` is covered: its layout lives in `src/render.mjs` as pure functions,
+so the tests never need a terminal.
 
 To try everything **without credentials**, using a local server that mimics the
 API and increments the values on every request:
@@ -230,6 +310,13 @@ API and increments the values on every request:
 npm run fixture
 node src\fetch.mjs --url http://127.0.0.1:8787 --pretty
 npm run test:live
+```
+
+The same fixture works for the terminal meter:
+
+```bash
+node scripts/fixture-server.mjs --mode grow &
+./bin/ccmeter --url http://127.0.0.1:8787
 ```
 
 ---
@@ -262,16 +349,19 @@ at the first request and stay at zero until then.
 ```
 CommandCodeMonitor.exe     the executable: everything is in here
 config.example.json        configuration template
+bin/ccmeter                terminal meter for Linux and macOS
 csharp/                    C# sources of the executable
-src/                       equivalent Node/PowerShell implementation
+src/                       shared limits logic (limits.mjs), CLI rendering
+                           (render.mjs) and the PowerShell tray (tray.ps1)
 scripts/                   build, icon, autostart, self-test, fixture server
 test/                      Node + Pester suites and the live harness
 screenshots/               images used by this README
 ```
 
-Both implementations share `config.json`, the screens and the number formatting;
-the executable self-test compares its values against the ones the Node version
-produces from the same payload, so the two cannot silently diverge.
+All three implementations share `config.json`, the credential lookup and the
+number formatting; the executable self-test compares its values against the ones
+the Node version produces from the same payload, and `ccmeter` imports the same
+`limits.mjs` the tray uses, so none of them can silently diverge.
 
 ---
 
@@ -286,3 +376,6 @@ For the script version:
 npm run autostart:off
 Remove-Item -Recurse -Force .cache
 ```
+
+For the terminal meter: delete the extracted folder, and the symlink if you made
+one. It writes nothing outside it.

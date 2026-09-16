@@ -1,9 +1,12 @@
 {
   "name": "commandcode-monitor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "Windows tray monitor for Command Code usage limits: standalone exe plus a Node/PowerShell implementation",
+  "description": "Command Code usage limits: Windows tray meter, plus a terminal meter for Linux and macOS",
+  "bin": {
+    "ccmeter": "bin/ccmeter"
+  },
   "engines": {
     "node": ">=18"
   },

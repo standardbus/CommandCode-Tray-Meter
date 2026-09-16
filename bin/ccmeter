@@ -1,0 +1,198 @@
+#!/usr/bin/env node
+/**
+ * Command Code limits meter for Linux and macOS.
+ *
+ * Shares every parsing, credential and formatting rule with the Windows tray:
+ * both import `src/limits.mjs`, and the text comes from `src/render.mjs`, so no
+ * value can be computed two different ways.
+ *
+ *   ccmeter                      current limits, human readable
+ *   ccmeter --watch              redraw on the configured interval
+ *   ccmeter --watch 30           redraw every 30 seconds
+ *   ccmeter --compact            one line per refresh, for a status bar
+ *   ccmeter --json               the raw payload as indented JSON
+ *   ccmeter --auth-only          report which credential source was found
+ *   ccmeter --config PATH        use an alternative configuration file
+ *   ccmeter --url URL            probe another host (fixture server)
+ *
+ * Exit codes, matching src/fetch.mjs: 0 = data or a non-fatal provider error,
+ * 2 = authentication needed, 3 = the command could not run at all.
+ */
+
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { STATUS, fetchLimits, loadConfig, normalizeConfig, redact, resolveCredential } from "../src/limits.mjs";
+import { renderPanel } from "../src/render.mjs";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Package version for --version; a bare checkout without one is still usable. */
+function version() {
+  try {
+    return JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+const USAGE = `Command Code limits meter
+
+Usage: ccmeter [options]
+
+  (no options)        print the current limits
+  --watch [SECONDS]   keep refreshing (default: refreshSeconds from config)
+  --compact           print one line per refresh, for a status bar
+  --json              print the raw payload as indented JSON
+  --auth-only         report which credential source is found, no network call
+  --config PATH       use an alternative configuration file
+  --url URL           override the base URL, for scripts/fixture-server.mjs
+  --no-color          disable colours (also honours NO_COLOR)
+  --ascii             draw bars with ASCII characters instead of blocks
+  -h, --help          this help
+  -V, --version       print the version
+
+Exit codes: 0 = data or a non-fatal provider error, 2 = authentication needed,
+3 = the command could not run.`;
+
+function parseArgs(argv) {
+  const options = {
+    watch: null,
+    compact: false,
+    json: false,
+    authOnly: false,
+    configPath: "",
+    url: "",
+    color: true,
+    ascii: false,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--watch") {
+      const next = argv[index + 1];
+      if (next !== undefined && /^\d+$/.test(next)) {
+        options.watch = Number(next);
+        index += 1;
+      } else {
+        options.watch = 0;
+      }
+    } else if (arg.startsWith("--watch=")) {
+      const value = arg.slice("--watch=".length);
+      options.watch = /^\d+$/.test(value) ? Number(value) : 0;
+    } else if (arg === "--compact") options.compact = true;
+    else if (arg === "--json") options.json = true;
+    else if (arg === "--auth-only") options.authOnly = true;
+    else if (arg === "--no-color") options.color = false;
+    else if (arg === "--ascii") options.ascii = true;
+    else if (arg === "--config") options.configPath = argv[++index] ?? "";
+    else if (arg.startsWith("--config=")) options.configPath = arg.slice("--config=".length);
+    else if (arg === "--url") options.url = argv[++index] ?? "";
+    else if (arg.startsWith("--url=")) options.url = arg.slice("--url=".length);
+    else if (arg === "--help" || arg === "-h") options.help = true;
+    else if (arg === "--version" || arg === "-V") options.version = true;
+    else {
+      console.error(`ccmeter: unrecognised argument: ${arg}`);
+      console.error("Try 'ccmeter --help'.");
+      process.exit(3);
+    }
+  }
+  return options;
+}
+
+const options = parseArgs(process.argv.slice(2));
+if (options.help) {
+  console.log(USAGE);
+  process.exit(0);
+}
+if (options.version) {
+  console.log(`ccmeter ${version()}`);
+  process.exit(0);
+}
+
+// Colours only when a human is watching: a pipe, a redirect or NO_COLOR gets
+// plain text, so logs and status bars never carry escape sequences.
+const color = options.color && !process.env.NO_COLOR && process.stdout.isTTY === true;
+
+function resolveConfigPath() {
+  if (options.configPath) return resolve(options.configPath);
+  const beside = join(ROOT, "config.json");
+  return existsSync(beside) ? beside : join(process.cwd(), "config.json");
+}
+
+const configPath = resolveConfigPath();
+let config;
+try {
+  config = loadConfig(configPath);
+} catch (error) {
+  console.error(redact(`config.json is not readable: ${error.message}`));
+  process.exit(3);
+}
+if (options.url) {
+  config = normalizeConfig({ ...config, endpoints: { ...config.endpoints, baseUrl: options.url } });
+}
+
+if (options.authOnly) {
+  const credential = resolveCredential(config);
+  const payload = {
+    configPath,
+    configExists: existsSync(configPath),
+    hasToken: Boolean(credential.token),
+    source: credential.source,
+    ...(credential.error ? { status: credential.error, message: credential.message } : {}),
+  };
+  console.log(JSON.stringify(payload, null, 2));
+  process.exit(credential.error ? 2 : 0);
+}
+
+async function probe() {
+  try {
+    return await fetchLimits(config);
+  } catch (error) {
+    // fetchLimits is designed not to throw; this is a last-resort guard so one
+    // failed refresh never takes the refresh loop down.
+    return {
+      status: STATUS.NETWORK_ERROR,
+      source: "none",
+      fetchedAt: Date.now(),
+      message: redact(`Unexpected error: ${error?.message ?? error}`),
+    };
+  }
+}
+
+async function once() {
+  const result = await probe();
+  if (options.json) console.log(JSON.stringify(result, null, 2));
+  else console.log(renderPanel(result, config, { color, ascii: options.ascii, compact: options.compact }));
+  return result;
+}
+
+if (options.watch === null) {
+  const result = await once();
+  process.exit(result.status === STATUS.AUTH_NEEDED ? 2 : 0);
+}
+
+// --watch: redraw in place on a terminal, append otherwise, so `--watch` inside
+// a pipe or a CI log stays readable instead of filling it with escapes.
+const intervalSeconds = Math.max(15, options.watch > 0 ? options.watch : (config.refreshSeconds ?? 120));
+const redraw = color && !options.compact;
+const clear = () => {
+  if (redraw) process.stdout.write("\u001b[2J\u001b[H");
+};
+
+clear();
+const first = await once();
+if (first.status === STATUS.AUTH_NEEDED) process.exit(2);
+
+const timer = setInterval(() => {
+  clear();
+  void once();
+}, intervalSeconds * 1000);
+
+function stop() {
+  clearInterval(timer);
+  if (redraw) process.stdout.write("\n");
+  process.exit(0);
+}
+process.on("SIGINT", stop);
+process.on("SIGTERM", stop);

@@ -80,7 +80,7 @@ function emit(payload, pretty, outPath) {
     try {
       writeFileSync(outPath, `${text}\n`, "utf8");
     } catch (error) {
-      console.error(`Impossibile scrivere ${outPath}: ${error.message}`);
+      console.error(`Could not write ${outPath}: ${error.message}`);
     }
   }
 }
@@ -89,12 +89,12 @@ const options = parseArgs(process.argv.slice(2));
 if (options.help) {
   console.log(
     [
-      "Uso: node src/fetch.mjs [--auth-only] [--pretty] [--url URL] [--config PATH]",
+      "Usage: node src/fetch.mjs [--auth-only] [--pretty] [--url URL] [--config PATH]",
       "",
       "  --auth-only   reports only which credential source was found",
-      "  --url URL     sovrascrive la base URL (utile con scripts/fixture-server.mjs)",
+      "  --url URL     overrides the base URL (useful with scripts/fixture-server.mjs)",
       "  --config PATH use an alternative configuration file",
-      "  --pretty      output JSON indentato",
+      "  --pretty      indented JSON output",
     ].join("\n"),
   );
   process.exit(0);

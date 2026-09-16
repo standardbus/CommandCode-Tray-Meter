@@ -579,7 +579,7 @@ export function buildDisplay(result, now = Date.now()) {
     if (result.runs.failed !== null && result.runs.failed > 0) {
       display.runsDetail = `${formatCount(result.runs.failed)} failed`;
     } else if (result.runs.successRate !== null) {
-      display.runsDetail = `${formatAmount(result.runs.successRate)}% riusciti`;
+      display.runsDetail = `${formatAmount(result.runs.successRate)}% succeeded`;
     }
   }
   return display;
@@ -694,7 +694,7 @@ export async function fetchLimits(config, options = {}) {
         message:
           "Command Code rejected the credential (HTTP " +
           status +
-          "). Rinnova la Provider-API key in config.json.",
+          "). Renew the Provider-API key in config.json.",
       };
     }
     return {
