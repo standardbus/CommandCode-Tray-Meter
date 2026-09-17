@@ -73,18 +73,19 @@ $script:ColorPanelEdge = [System.Drawing.Color]::FromArgb(70, 70, 76)
 $PanelWidth = 320
 $PanelCloseSize = 16
 
-# The bubble is 306px for the single account it has always shown. With two or
-# more accounts an "Accounts" section is added below the figures and the panel
-# grows with it: the window, the popup's minimum size and the mouse-hook
-# geometry all read $PanelHeight, so one number keeps them in step.
+# The bubble is 306px for the single account it has always shown. With two or more
+# accounts a tab strip is added at the top and the panel grows by exactly its
+# height: the window, the popup's minimum size and the mouse-hook geometry all
+# read $PanelHeight, so one number keeps them in step. Everything drawn below the
+# header shifts down by the same amount, which is what keeps the single-account
+# layout pixel-identical to the bubble that shipped before the tabs existed.
 $PanelBaseHeight = 306
-$PanelAccountsTitleHeight = 26
-$PanelAccountRowHeight = 18
+$PanelTabStripHeight = 28
 
 function Get-PanelHeight {
   param([int]$AccountCount = 0)
   if ($AccountCount -lt 2) { return $PanelBaseHeight }
-  return $PanelBaseHeight + $PanelAccountsTitleHeight + ($AccountCount * $PanelAccountRowHeight)
+  return $PanelBaseHeight + $PanelTabStripHeight
 }
 
 $PanelHeight = $PanelBaseHeight
@@ -189,6 +190,11 @@ public class PopupKeyFilter : IMessageFilter
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
+
+# The settings window writes config.json, so it lives in its own file: this one
+# stays the drawing and tray plumbing. Dot-sourced after the WinForms assemblies
+# above, which the window's own controls are built from.
+. (Join-Path $PSScriptRoot "settings.ps1")
 
 # --- configuration + session bootstrap ------------------------------------
 
@@ -699,49 +705,119 @@ function Draw-TextRow {
   $Graphics.DrawString($Value, $script:FontLabel, $script:BrushText, [float]($PanelWidth - 16 - $size.Width), [float]$Y)
 }
 
-# One account of the Accounts section: the name on the left, the three windows on
-# the right. The layout comes from `panel.accountRow`, so a translation decides
-# the order of the figures and the separators between them.
-function Draw-AccountRow {
-  param(
-    [System.Drawing.Graphics]$Graphics,
-    [int]$Y,
-    $Account,
-    [bool]$Active
-  )
-  $name = [string](Get-Value $Account "name")
-  if (-not $name) { $name = [string](Get-Value $Account "id") }
-  $display = Get-Value $Account "display"
-  $percentOf = {
-    param($Key)
-    $value = [string](Get-Value $display "$($Key)Percent")
-    if ($value) { return $value }
-    return "--"
-  }
-  $text = Get-CcText "panel.accountRow" @{
-    name = $name
-    five = (& $percentOf "fiveHour")
-    weekly = (& $percentOf "weekly")
-    monthly = (& $percentOf "monthly")
-  }
-  $font = if ($Active) { $script:FontLabel } else { $script:FontSmall }
-  $brush = if ($Active) { $script:BrushText } else { $script:BrushDim }
-  # The active account gets a marker in the left margin, so the row that matches
-  # the figures above is identifiable without reading the names.
-  if ($Active) {
-    $marker = New-SolidBrush $script:ColorOk
-    $Graphics.FillEllipse($marker, 6, ($Y + 7), 4, 4)
-    $marker.Dispose()
-  }
-  $Graphics.DrawString($text, $font, $brush, [float]16, [float]$Y)
-}
-
 function Draw-CreditsRow {
   param([System.Drawing.Graphics]$Graphics, [int]$Y, $Credits, [string]$Text)
   $left = 16
   if ($null -eq $Credits) { return }
   if (-not $Text) { $Text = Get-CcText "panel.noCredits" }
   $Graphics.DrawString($Text, $script:FontSmall, $script:BrushDim, [float]$left, [float]$Y)
+}
+
+# --- account tabs ----------------------------------------------------------
+#
+# With two or more accounts the bubble is topped by a strip of tabs, one per
+# account, and the active one highlighted. The strip replaces the "Accounts" row
+# section that used to sit above the footer: the tabs *are* the switcher, and the
+# panel below always shows the active account in full.
+#
+# The geometry is a function rather than inline arithmetic so the drawing and the
+# hit-testing can never disagree about where a tab is.
+
+# The strip starts below the header and is one $PanelTabStripHeight tall; this is
+# the same offset every piece of content below it is shifted by, so the constant
+# appears once.
+function Get-PanelContentOffset {
+  param([int]$AccountCount = 0)
+  if ($AccountCount -lt 2) { return 0 }
+  return $PanelTabStripHeight
+}
+
+function Get-PanelTabStripRect {
+  param([int]$AccountCount, [int]$Offset)
+  return [System.Drawing.Rectangle]::new(16, ($Offset + 6), ($PanelWidth - 32), ($PanelTabStripHeight - 6))
+}
+
+function Get-PanelTabWidth {
+  param([int]$AccountCount)
+  if ($AccountCount -lt 1) { return 0 }
+  return [int][Math]::Floor(($PanelWidth - 32) / $AccountCount)
+}
+
+function Get-PanelTabRect {
+  param([int]$AccountCount, [int]$Index, [int]$Offset)
+  $strip = Get-PanelTabStripRect -AccountCount $AccountCount -Offset $Offset
+  $width = Get-PanelTabWidth -AccountCount $AccountCount
+  return [System.Drawing.Rectangle]::new(($strip.Left + $Index * $width), $strip.Top, $width, $strip.Height)
+}
+
+# The account whose tab holds this point, or -1. Kept a pure predicate so it can
+# be tested without real mouse input, which cannot be synthesised from inside a
+# single process.
+function Get-PanelTabIndexAtPoint {
+  param([int]$AccountCount, [System.Drawing.Point]$Point, [int]$Offset)
+  if ($AccountCount -lt 2) { return -1 }
+  for ($index = 0; $index -lt $AccountCount; $index++) {
+    if ((Get-PanelTabRect -AccountCount $AccountCount -Index $index -Offset $Offset).Contains($Point)) { return $index }
+  }
+  return -1
+}
+
+# Setter rather than a direct field write, for the same reason as Set-CloseHover:
+# $script: resolves to the caller's scope, so a handler must toggle it from inside
+# this module for the repaint to see it.
+function Set-TabHover {
+  param([int]$Index)
+  if ($script:TabHover -eq $Index) { return }
+  $script:TabHover = $Index
+  if ($script:OwnerDrawItem) { $script:OwnerDrawItem.Invalidate() }
+}
+
+function Get-TabTooltip {
+  # The hover text of every tab: which account the tab switches to.
+  return (Get-CcText "panel.tabTip")
+}
+
+function Draw-TabStrip {
+  param([System.Drawing.Graphics]$Graphics, [int]$Offset)
+  $accounts = Get-AccountList
+  if ($accounts.Count -lt 2) { return }
+  $activeId = Get-ActiveProfileId
+  for ($index = 0; $index -lt $accounts.Count; $index++) {
+    $account = $accounts[$index]
+    $rect = Get-PanelTabRect -AccountCount $accounts.Count -Index $index -Offset $Offset
+    $id = ([string](Get-Value $account "id")).ToLowerInvariant()
+    $isActive = ($id -eq $activeId)
+
+    if ($isActive) {
+      $ground = New-SolidBrush ([System.Drawing.Color]::FromArgb(52, 235, 235, 235))
+      $Graphics.FillRectangle($ground, $rect)
+      $ground.Dispose()
+    } elseif ($index -eq $script:TabHover) {
+      $ground = New-SolidBrush ([System.Drawing.Color]::FromArgb(26, 235, 235, 235))
+      $Graphics.FillRectangle($ground, $rect)
+      $ground.Dispose()
+    }
+
+    $name = [string](Get-Value $account "name")
+    if (-not $name) { $name = $id }
+    $font = if ($isActive) { $script:FontLabel } else { $script:FontSmall }
+    $brush = if ($isActive) { $script:BrushText } else { $script:BrushDim }
+    # Clipped to its tab so a long account name cannot bleed into the next one.
+    $previousClip = $Graphics.Clip
+    $Graphics.SetClip($rect)
+    $size = $Graphics.MeasureString($name, $font)
+    $textX = $rect.Left + [Math]::Max(4, ($rect.Width - $size.Width) / 2)
+    $Graphics.DrawString($name, $font, $brush, [float]$textX, [float]($rect.Top + [Math]::Max(0, ($rect.Height - $size.Height) / 2)))
+    $Graphics.Clip = $previousClip
+
+    if ($isActive) {
+      # The underline is the part that reads at a glance, and it is what the
+      # "active tab" assertions in the tests look for.
+      $pen = New-Object System.Drawing.Pen($script:ColorOk, [float]2)
+      $Graphics.DrawLine($pen, $rect.Left, ($rect.Bottom - 1), $rect.Right, ($rect.Bottom - 1))
+      $pen.Dispose()
+    }
+  }
 }
 
 # The whole bubble is one owner-drawn menu item, which is what lets it repaint
@@ -759,6 +835,13 @@ function Draw-Panel {
   $hasError = ($data -ne $null) -and ($data.status -ne $null) -and ($data.status -ne "")
   $isStale = ($data -ne $null) -and ([bool]$data.stale)
   $noData = ($null -eq $data)
+
+  # With two or more accounts the tab strip occupies the space between the header
+  # and the figures, and every piece of content below it moves down by exactly that
+  # height. With one account the offset is 0 and every coordinate below is the one
+  # the bubble has always used.
+  $accountCount = (Get-AccountList).Count
+  $contentOffset = Get-PanelContentOffset -AccountCount $accountCount
 
   # Header: title on the left, refresh state on the right. The accent dot tracks
   # the same window as the ring.
@@ -786,7 +869,9 @@ function Draw-Panel {
   }
 
   # Close button: always drawn, including on the error card, so the bubble can
-  # never be left on screen without a way out.
+  # never be left on screen without a way out. It stays in the header, so its
+  # rectangle - which the hit test and the mouse hook use too - is unaffected by
+  # the strip.
   if ($script:CloseHover) {
     $hoverGround = New-SolidBrush ([System.Drawing.Color]::FromArgb(58, 235, 235, 235))
     $Graphics.FillEllipse($hoverGround, $closeRect)
@@ -798,8 +883,12 @@ function Draw-Panel {
   $Graphics.DrawLine($crossPen, ($closeRect.Right - $crossInset), ($closeRect.Top + $crossInset), ($closeRect.Left + $crossInset), ($closeRect.Bottom - $crossInset))
   $crossPen.Dispose()
 
+  # The tabs replace the Accounts section: they are the switcher, the panel below
+  # is always the active account in full.
+  Draw-TabStrip -Graphics $Graphics -Offset $contentOffset
+
   if ($noData) {
-    $Graphics.DrawString((Get-CcText "panel.waiting"), $script:FontLabel, $script:BrushDim, [float]16, [float]56)
+    $Graphics.DrawString((Get-CcText "panel.waiting"), $script:FontLabel, $script:BrushDim, [float]16, [float](56 + $contentOffset))
     return
   }
 
@@ -808,48 +897,35 @@ function Draw-Panel {
     # Direct constructors rather than New-Object: New-Object's argument binding
     # mis-parses an inline expression such as `$PanelWidth - 32` and fails with a
     # confusing "op_Subtraction" error instead of constructing the rectangle.
-    $rect = [System.Drawing.RectangleF]::new(16, 54, [float]($PanelWidth - 32), 116)
+    $rect = [System.Drawing.RectangleF]::new(16, (54 + $contentOffset), [float]($PanelWidth - 32), 116)
     $Graphics.DrawString($message, $script:FontLabel, $script:BrushText, $rect)
-    $hint = Get-CcText "panel.openConfig"
-    $Graphics.DrawString($hint, $script:FontSmall, $script:BrushDim, [float]16, [float]176)
+    $hint = Get-CcText "panel.settingsHint"
+    $Graphics.DrawString($hint, $script:FontSmall, $script:BrushDim, [float]16, [float](176 + $contentOffset))
     return
   }
 
-  Draw-LimitRow -Graphics $Graphics -Y 50 -Title (Get-CcText "panel.fiveHour") -Window $data.fiveHour `
+  Draw-LimitRow -Graphics $Graphics -Y (50 + $contentOffset) -Title (Get-CcText "panel.fiveHour") -Window $data.fiveHour `
     -ResetIn $data.display.fiveHourResetIn -ResetAt $data.display.fiveHourResetAt `
     -Usage $data.display.fiveHourUsage
-  Draw-LimitRow -Graphics $Graphics -Y 106 -Title (Get-CcText "panel.weekly") -Window $data.weekly `
+  Draw-LimitRow -Graphics $Graphics -Y (106 + $contentOffset) -Title (Get-CcText "panel.weekly") -Window $data.weekly `
     -ResetIn $data.display.weeklyResetIn -ResetAt $data.display.weeklyResetAt `
     -Usage $data.display.weeklyUsage
-  Draw-LimitRow -Graphics $Graphics -Y 162 -Title (Get-CcText "panel.monthly") -Window $data.monthly `
+  Draw-LimitRow -Graphics $Graphics -Y (162 + $contentOffset) -Title (Get-CcText "panel.monthly") -Window $data.monthly `
     -ResetIn $data.display.monthlyResetIn -ResetAt $data.display.monthlyResetAt `
     -Usage $data.display.monthlyUsage
-  Draw-TextRow -Graphics $Graphics -Y 218 -Label (Get-CcText "panel.tokens") `
+  Draw-TextRow -Graphics $Graphics -Y (218 + $contentOffset) -Label (Get-CcText "panel.tokens") `
     -Value $(if ($data.tokens) { $data.display.tokensValue } else { Get-CcText "panel.notUpdated" })
-  Draw-TextRow -Graphics $Graphics -Y 242 -Label (Get-CcText "panel.runs") `
+  Draw-TextRow -Graphics $Graphics -Y (242 + $contentOffset) -Label (Get-CcText "panel.runs") `
     -Value $(if ($data.runs) { $data.display.runsValue } else { Get-CcText "panel.notUpdated" })
-  Draw-CreditsRow -Graphics $Graphics -Y 266 -Credits $data.credits -Text $data.display.creditsText
+  Draw-CreditsRow -Graphics $Graphics -Y (266 + $contentOffset) -Credits $data.credits -Text $data.display.creditsText
 
   # Footer.
   $footerY = $PanelHeight - 18
 
-  # Accounts: the section exists only when there is more than one, so the
-  # single-account bubble keeps the exact layout it has always had.
-  $accounts = Get-AccountList
-  if ($accounts.Count -ge 2) {
-    # One scale for the whole section: the title and the rows are laid out from
-    # the footer upwards, so the growth in $PanelHeight is exactly what they use.
-    $rowScale = 18
-    $firstRowY = $footerY - 6 - ($accounts.Count * $rowScale)
-    $Graphics.DrawString((Get-CcText "panel.accounts"), $script:FontSmall, $script:BrushDim, [float]16, [float]($firstRowY - 20))
-    $activeId = Get-ActiveProfileId
-    for ($index = 0; $index -lt $accounts.Count; $index++) {
-      $account = $accounts[$index]
-      $rowY = $firstRowY + ($index * $rowScale)
-      $rowId = ([string](Get-Value $account "id")).ToLowerInvariant()
-      Draw-AccountRow -Graphics $Graphics -Y $rowY -Account $account -Active ($rowId -eq $activeId)
-    }
-  }
+  # No Accounts section here any more: the tab strip above is what switches the
+  # monitored account, and the panel below it is always the active account in
+  # full. A single-account installation therefore draws exactly what it always
+  # drew, which is what keeps the README screenshots valid.
 
   # The footer clock is derived from fetchedAt on every presentation pass rather
   # than carried in the payload, so a poll that updates the session state without
@@ -895,8 +971,10 @@ function Get-Value {
 #
 # The session fetches every configured account in one pass and returns the list
 # of accounts plus the one that is active, with the active account's fields at
-# the top level. Only switching the active account is the tray's job, and the
-# choice is recorded in the cache: config.json is never written.
+# the top level. Switching the active account is the tray's job: the tab strip and
+# the menu both come through here, and the choice is recorded both in the cache
+# (which the session reads first on startup) and in config.json, through the same
+# writer the settings window uses.
 
 function Switch-ActiveProfile {
   param([string]$Id)
@@ -904,11 +982,32 @@ function Switch-ActiveProfile {
   if (-not $wanted) { return }
   # Written first, so the choice survives even if no session is listening.
   [void](Set-CachedProfileId $wanted)
+  $script:CachedProfile = $wanted
+  # And into the configuration, where it is the documented way to say which
+  # account the monitor follows; the cache file is runtime state and can be
+  # cleared at any time.
+  try {
+    if (-not (Set-CcActiveProfileInConfig -Path $ConfigPath -Id $wanted)) {
+      Write-TrayError "Switch-ActiveProfile: activeProfile not written to $ConfigPath"
+    }
+  } catch {
+    Write-TrayError "Switch-ActiveProfile: $($_.Exception.Message)"
+  }
   $body = @{ id = $wanted } | ConvertTo-Json -Compress
   # The session answers with the payload of the newly active account, so the
   # bubble repaints from this response instead of waiting for the next poll.
   $payload = Invoke-SessionRequest -Path "/profile" -Method "POST" -Body $body
-  if ($payload) { $script:Data = $payload }
+  if ($payload) {
+    $script:Data = $payload
+  } elseif ($script:Data) {
+    # No session to ask (or it failed): the cached payload still names the account
+    # that was active a moment ago, and the top level of a payload outranks the
+    # cache. Forgetting that field is what makes the switch visible immediately -
+    # the figures are still the old account's until the next successful fetch, but
+    # the tooltip, the tab highlight and the icon no longer claim otherwise.
+    $property = $script:Data.PSObject.Properties["activeProfile"]
+    if ($null -ne $property) { $script:Data.PSObject.Properties.Remove("activeProfile") }
+  }
   Update-TrayPresentation
   if ($script:Popup.Visible) { $script:OwnerDrawItem.Invalidate() }
 }
@@ -1182,6 +1281,9 @@ $script:IconSignature = ""
 $script:NodePath = $null
 $script:SessionProcess = $null
 $script:CloseHover = $false
+# Which account tab the pointer is over, or -1: it is painter state only, read by
+# Draw-TabStrip so a hovered tab lights up like the close button does.
+$script:TabHover = -1
 $script:InsideClick = $false
 $script:CloseRequested = $false
 $script:LastAnchor = $null
@@ -1256,11 +1358,21 @@ $script:OwnerDrawItem.Add_Paint({
 
 # --- bubble interaction ----------------------------------------------------
 
-# Hover feedback for the close button. Tracked on the item rather than with
-# MouseLeave, which does not fire reliably on a ToolStripItem.
+# Hover feedback for the close button and the account tabs. Tracked on the item
+# rather than with MouseLeave, which does not fire reliably on a ToolStripItem.
 $script:OwnerDrawItem.Add_MouseMove({
   param($sender, $eventArgs)
   Set-CloseHover -Hover (Get-CloseButtonHit -Point $eventArgs.Location)
+  # The tab strip only exists with two or more accounts, and the offset it moves
+  # the content by is the same one the hit test uses.
+  $tabIndex = Get-PanelTabIndexAtPoint -AccountCount (Get-AccountList).Count `
+    -Point $eventArgs.Location -Offset (Get-PanelContentOffset -AccountCount (Get-AccountList).Count)
+  if ($tabIndex -ne $script:TabHover) {
+    Set-TabHover -Index $tabIndex
+    # The bubble explains what a click on a tab does, and forgets it again as
+    # soon as the pointer leaves the strip.
+    $script:Popup.ToolTipText = $(if ($tabIndex -ge 0) { Get-TabTooltip } else { "" })
+  }
 })
 
 # An inside click must be recorded before the mouse hook sees it: MouseDown runs
@@ -1275,7 +1387,21 @@ $script:OwnerDrawItem.Add_MouseUp({
   param($sender, $eventArgs)
   if ($script:CloseHover) {
     $script:Popup.Close()
+    return
   }
+  # A tab switches the monitored account and leaves the bubble open: the panel
+  # below repaints with the account that was just picked. The strip is only
+  # present with two or more accounts, which is also the only case
+  # Get-PanelTabIndexAtPoint can answer with an index.
+  $accounts = Get-AccountList
+  $offset = Get-PanelContentOffset -AccountCount $accounts.Count
+  $tabIndex = Get-PanelTabIndexAtPoint -AccountCount $accounts.Count -Point $eventArgs.Location -Offset $offset
+  if ($tabIndex -lt 0) { return }
+  $account = $accounts[$tabIndex]
+  $id = ([string](Get-Value $account "id")).ToLowerInvariant()
+  # Clicking the tab that is already active changes nothing: re-selecting it would
+  # only churn the cache file and the configuration.
+  if ($id -and $id -ne (Get-ActiveProfileId)) { Switch-ActiveProfile -Id $id }
 })
 
 # Escape is the keyboard equivalent of clicking away.
@@ -1297,6 +1423,7 @@ if ("PopupKeyFilter" -as [type]) {
 
 $script:Popup.Add_Opened({
   $script:CloseHover = $false
+  $script:TabHover = -1
   $script:InsideClick = $false
   $script:CloseRequested = $false
   Start-MouseWatch
@@ -1323,12 +1450,44 @@ function Add-MenuItem {
   Start-LimitsUpdate
   if ($script:Popup.Visible) { $script:OwnerDrawItem.Invalidate() }
 })
-[void](Add-MenuItem -Text (Get-CcText "menu.openConfig" @{ file = (Split-Path -Leaf $ConfigPath) }) -OnClick {
-  if (-not (Test-Path $ConfigPath)) {
-    $example = Join-Path $ProjectRoot "config.example.json"
-    if (Test-Path $example) { Copy-Item $example $ConfigPath -Force }
+# Called by the settings window after it has written config.json: the tray has to
+# pick the file up again, or the icon, the tooltip and the bubble would keep the
+# values they were started with. A named function rather than an inline
+# scriptblock, so it resolves $script:* and the tray's other helpers wherever it
+# is invoked from.
+function Reload-MonitorConfig {
+  Import-MonitorConfig
+  $script:CachedProfile = Get-CachedProfileId
+  Update-TrayPresentation
+  Update-AccountMenu
+  if ($script:Popup.Visible) { $script:OwnerDrawItem.Invalidate() }
+}
+
+# Settings: the accounts, the language and the numeric settings are edited in a
+# window of our own. There is no external editor any more - notepad.exe is not
+# guaranteed to exist - and config.json is written by the tray through the one
+# writer that preserves everything the window does not manage.
+#
+# The window reports its own failures, but this handler is the last thing between
+# it and the message loop: an exception raised here would become the WinForms
+# unhandled-exception dialog, which is never an acceptable outcome for opening a
+# settings window.
+[void](Add-MenuItem -Text (Get-CcText "menu.settingsWindow") -OnClick {
+  try {
+    Show-CcSettingsWindow -Path $ConfigPath -ActiveProfile (Get-ActiveProfileId) -OnSaved { Reload-MonitorConfig }
+  } catch {
+    # `log.unexpected` is the table's own wording for this; the exception text is
+    # the {message} placeholder.
+    $message = $_.Exception.Message
+    Write-TrayError (Get-CcText "log.unexpected" @{ message = $message })
+    try {
+      [void][System.Windows.Forms.MessageBox]::Show(
+        (Get-CcText "settings.saveFailed" @{ message = $message }),
+        (Get-CcText "settings.title"),
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error)
+    } catch { }
   }
-  if (Test-Path $ConfigPath) { Start-Process notepad.exe $ConfigPath } else { Write-TrayError (Get-CcText "log.configUnreadable" @{ message = (Split-Path -Leaf $ConfigPath) }) }
 })
 [void](Add-MenuItem -Text (Get-CcText "menu.settings") -OnClick {
   Start-Process "https://commandcode.ai/settings/keys"
@@ -1470,3 +1629,4 @@ if (-not $SelfTest) {
     }
   }
 }
+

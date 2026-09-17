@@ -4,7 +4,7 @@
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white)](#)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-130%20Node%20%2B%2046%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
+[![Tests](https://img.shields.io/badge/tests-130%20Node%20%2B%2077%20Pester%20%2B%2024%20self--test-3fb950)](#tests)
 [![Executable size](https://img.shields.io/badge/executable-124%20KB-4c8eda)](#)
 
 [![Release](https://img.shields.io/github/v/release/standardbus/CommandCode-Tray-Meter?label=release&color=4c8eda&logo=github)](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)
@@ -62,17 +62,22 @@ the hydrated one.
 # 1. download CommandCodeMonitor.exe from the release, or build it:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-exe.ps1
 
-# 2. put the key into the configuration
-notepad config.json          # paste your Provider-API key into "apiKey"
-
-# 3. run it
+# 2. run it
 .\CommandCodeMonitor.exe
+
+# 3. right-click the tray icon > Settings… and paste your Provider-API key
 ```
 
 `CommandCodeMonitor.exe` and `config.json` in the same folder are all you need:
 **no runtime to install**, no companion script, nothing to unpack. The executable
 is compiled with the C# compiler bundled with .NET Framework 4.8, which is
 present on every Windows 10 and 11 machine.
+
+The **Settings** window is where the configuration is edited — accounts, keys,
+language, thresholds and the rest — so no external editor is involved.
+`config.json` stays plain JSON and is still read at startup, so editing it by
+hand works too; the window rewrites only the keys it manages and leaves anything
+else in the file untouched.
 
 Useful commands:
 
@@ -95,8 +100,7 @@ Windows.
 
 ```powershell
 Copy-Item config.example.json config.json
-notepad config.json          # paste your key
-npm start
+npm start                    # then right-click the icon > Settings… for your key
 ```
 
 ---
@@ -190,7 +194,7 @@ different ways.
 | **Tokens used** | cycle total (`564.0 M`) |
 | **Runs** | number of executions in the cycle (`3120`) |
 | **Credits** row | spent against available, in USD, with what is left |
-| **Accounts** section | one row per other account, shown only when `profiles` lists more than one |
+| **Accounts** tabs | one tab per account along the top, shown only when `profiles` lists more than one; clicking one switches the monitored account |
 
 Colours follow configurable thresholds: **green** below 60%, **amber** from 60%,
 **red** from 85%.
@@ -264,9 +268,9 @@ keys apply to the executable, the tray scripts and the terminal meter.
 
 ### Accounts
 
-Monitoring several Command Code accounts means listing them under `profiles`.
-Each entry needs an `id` (lower-case letters, digits and hyphens, unique) and a
-key, either inline or named through an environment variable:
+Monitoring several Command Code accounts means listing them under `profiles` —
+easiest through the **Settings** window, where each account is a name and a key
+and the "+" adds another. The same configuration by hand:
 
 ```json
 {
@@ -279,10 +283,12 @@ key, either inline or named through an environment variable:
 ```
 
 - **The tray icon follows the active account** — `activeProfile` if it names one,
-  otherwise the first entry. The **Account** submenu switches it, and the choice
-  is remembered in `.cache`, never written back into `config.json`.
-- **The bubble shows every account**: the active one in full, then a row per
-  other account, and the panel grows to fit.
+  otherwise the first entry. Switch it from the **tabs in the bubble** or from the
+  **Account** submenu in the tray menu; the choice is remembered in `.cache` and
+  written back as `activeProfile`, so the account you picked is the one that opens
+  next time even if the cache is cleared.
+- **The bubble shows every account**: the tabs carry one per account and the panel
+  below shows the active one in full.
 - **`ccmeter` prints one block per account**, or a single line per account with
   `--compact`; `--profile work` narrows it to one and `--list-profiles` prints
   the ids.
@@ -294,6 +300,23 @@ key, either inline or named through an environment variable:
 
 A configuration without `profiles` behaves exactly as it always did: one account,
 `apiKey` plus the lookup order below.
+
+![Account tabs](screenshots/popup-tabs.png)
+
+*The tabs, one per account, with the monitored one underlined.*
+
+### The Settings window
+
+Right-click the tray icon, then **Settings…**. The window edits the accounts
+(name and key per row, "+" to add one, "−" to remove it), the interface
+**language**, the refresh interval, the amber and red thresholds, which window
+the ring follows, and the monochrome and tooltip switches. Keys are masked until
+you ask to see them.
+
+Saving writes `config.json` for you: the file is rewritten atomically (a
+temporary file replaced in place, so an interrupted save cannot truncate it) and
+every key the window does not manage — `endpoints`, `creditFiles`, the
+`$comment` notes, anything you added yourself — is preserved.
 
 ### Languages
 
@@ -352,8 +375,8 @@ file: the repository carries no asset nobody can regenerate.
 ```powershell
 npm test              # Node + Pester suites (tray and terminal meter)
 npm run test:node     # logic, credentials, accounts, languages, CLI (130 tests)
-npm run test:pester   # drawing, thresholds, closing and icon (46 tests)
-npm run build:exe     # builds the executable and runs its self-test (13 checks)
+npm run test:pester   # drawing, thresholds, closing and icon (77 tests)
+npm run build:exe     # builds the executable and runs its self-test (24 checks)
 ```
 
 The Node suite is the one that runs on Linux and macOS too, which is how

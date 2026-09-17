@@ -7,23 +7,21 @@ using System.Drawing.Text;
 
 namespace CommandCodeMonitor
 {
-    /// <summary>One account line of the panel's Accounts section.</summary>
+    /// <summary>One account of the panel, as the tab strip shows it.</summary>
     internal sealed class AccountRow
     {
         public string Name = "";
-        public string Five = "--";
-        public string Weekly = "--";
-        public string Monthly = "--";
         /// <summary>True for the account the rest of the panel is detailing.</summary>
         public bool Active;
     }
 
     /// <summary>
     /// Everything the panel draws: the reading the tray follows, whether a fetch is
-    /// in flight, and one row per account.
+    /// in flight, and one entry per account.
     ///
-    /// The rows are only drawn when there are two or more accounts, so a
-    /// single-account panel is byte-for-byte what it has always been.
+    /// The entries are only carried when there are two or more accounts, and they
+    /// are what the tab strip is drawn from: a single-account panel has no tabs and
+    /// is byte-for-byte what it has always been.
     /// </summary>
     internal sealed class PanelModel
     {
@@ -52,12 +50,15 @@ namespace CommandCodeMonitor
         public const int CloseSize = 16;
 
         /// <summary>
-        /// The Accounts section is a title plus one row per account, measured from
-        /// the footer upwards. The same numbers as the PowerShell tray, so the two
-        /// bubbles are the same shape.
+        /// Height of the tab strip. The same number the PowerShell tray uses, so
+        /// the two bubbles keep the same shape.
         /// </summary>
-        private const int AccountsTitleHeight = 26;
-        private const int AccountRowHeight = 18;
+        public const int TabStripHeight = 28;
+
+        /// <summary>Left and right margin of the tab strip.</summary>
+        private const int TabMargin = 6;
+        /// <summary>Space between two tabs.</summary>
+        private const int TabGap = 4;
 
         private readonly MonitorConfig _config;
         private readonly string _fontFamily;
@@ -79,6 +80,9 @@ namespace CommandCodeMonitor
         private readonly SolidBrush _brushDim;
 
         public bool CloseHover;
+
+        /// <summary>The tab the pointer is over, or -1. Owned by the popup window.</summary>
+        public int TabHover = -1;
 
         /// <summary>
         /// The family the panel draws with. Reported by the self-test, which is the
@@ -111,14 +115,51 @@ namespace CommandCodeMonitor
         /// <summary>
         /// Height of the bubble for a given number of accounts.
         ///
-        /// The Accounts section is only drawn from the second account on, so one
-        /// account keeps the historical height exactly; each row grows the window
-        /// instead of drawing over the footer.
+        /// The tab strip is only drawn from the second account on, so one account
+        /// keeps the historical height exactly - the screenshots stay valid - and
+        /// two or more add the strip and nothing else: the figures below it are the
+        /// same drawing, translated down.
         /// </summary>
         public static int HeightFor(int accountCount)
         {
-            if (accountCount < 2) return PanelHeight;
-            return PanelHeight + AccountsTitleHeight + accountCount * AccountRowHeight;
+            return accountCount < 2 ? PanelHeight : PanelHeight + TabStripHeight;
+        }
+
+        /// <summary>
+        /// How far the figures are shifted down: the height of the tab strip, or 0
+        /// when there is no strip. Every hit test has to apply the same offset.
+        /// </summary>
+        public static int StripHeightFor(int accountCount)
+        {
+            return accountCount < 2 ? 0 : TabStripHeight;
+        }
+
+        /// <summary>
+        /// The area of one tab, in panel coordinates. Shared by the drawing and the
+        /// hit testing, so a tab is clickable exactly where it is visible.
+        /// </summary>
+        public static Rectangle TabRect(int index, int count)
+        {
+            if (count <= 0 || index < 0 || index >= count) return Rectangle.Empty;
+            var usable = PanelWidth - 2 * TabMargin - (count - 1) * TabGap;
+            var width = usable / count;
+            var left = TabMargin + index * (width + TabGap);
+            return new Rectangle(left, 4, width, 20);
+        }
+
+        /// <summary>
+        /// The tab a point in the bubble is over, or -1.
+        ///
+        /// The same rectangles the strip is drawn from, so a tab is clickable
+        /// exactly where it is visible; the popup window calls this rather than
+        /// repeating the arithmetic.
+        /// </summary>
+        public static int TabAt(Point location, int accountCount)
+        {
+            if (StripHeightFor(accountCount) == 0) return -1;
+            for (var index = 0; index < accountCount; index++)
+                if (TabRect(index, accountCount).Contains(location)) return index;
+            return -1;
         }
 
         /// <summary>
@@ -127,8 +168,9 @@ namespace CommandCodeMonitor
         /// Chinese needs a CJK-capable face: "Segoe UI" carries no CJK glyphs and
         /// would draw a row of boxes, so a Chinese interface picks the first
         /// installed CJK family and falls back to "Segoe UI" when there is none.
+        /// The settings window asks for the same family.
         /// </summary>
-        private static string ResolveFontFamily()
+        internal static string ResolveFontFamily()
         {
             if (Lang.Active == "zh")
             {
@@ -156,7 +198,16 @@ namespace CommandCodeMonitor
 
         public static Rectangle CloseRect()
         {
-            return new Rectangle(PanelWidth - 16 - CloseSize, 9, CloseSize, CloseSize);
+            return CloseRect(0);
+        }
+
+        /// <summary>
+        /// The close button, shifted down by the tab strip when there is one: the
+        /// button belongs to the figures, so it moves with them.
+        /// </summary>
+        public static Rectangle CloseRect(int stripOffset)
+        {
+            return new Rectangle(PanelWidth - 16 - CloseSize, 9 + stripOffset, CloseSize, CloseSize);
         }
 
         public Color PhaseColor(double? percent)
@@ -303,6 +354,7 @@ namespace CommandCodeMonitor
             var data = model == null ? null : model.Data;
             var fetching = model != null && model.Fetching;
             var accounts = model == null ? null : model.Accounts;
+            var strip = StripHeightFor(accounts == null ? 0 : accounts.Count);
 
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
@@ -313,14 +365,46 @@ namespace CommandCodeMonitor
             bool hasError = data != null && !string.IsNullOrEmpty(data.Status);
             bool noData = data == null;
 
-            // Header: title, plan, accent dot and close button.
+            // The accent the header dot and the active tab share.
             var accent = hasError || noData ? _idle : PhaseColor(data.ValueFor(_config.IconMetric));
-            using (var marker = new SolidBrush(accent))
+
+            // The tab strip sits above everything and is drawn in panel
+            // coordinates; the figures below it are the drawing this panel has
+            // always done, translated down. With one account the offset is zero and
+            // the transform is not even applied, so those pixels are untouched.
+            if (strip > 0) DrawTabs(graphics, accounts, accent);
+
+            var state = graphics.Save();
+            try
+            {
+                if (strip > 0) graphics.TranslateTransform(0, strip);
+                DrawContent(graphics, bounds.Height - strip, data, fetching, hasError, noData);
+            }
+            finally
+            {
+                graphics.Restore(state);
+            }
+        }
+
+        /// <summary>
+        /// The panel below the tab strip: header, plan, close button, the three
+        /// windows and the footer. It is drawn as if the panel were
+        /// <paramref name="contentHeight"/> tall, whatever the strip above it costs,
+        /// and in the coordinates it always used - the strip is the caller's
+        /// transform, not a second offset.
+        /// </summary>
+        private void DrawContent(Graphics graphics, int contentHeight, LimitsResult data,
+            bool fetching, bool hasError, bool noData)
+        {
+            using (var marker = new SolidBrush(hasError || noData ? _idle : PhaseColor(data.ValueFor(_config.IconMetric))))
                 graphics.FillEllipse(marker, 16, 18, 10, 10);
 
             var title = Lang.T("panel.title");
             graphics.DrawString(title, _fontTitle, _brushText, 30f, 13f);
 
+            // In content coordinates: the translation above already moved it. The
+            // offset overload of CloseRect is for the hit test, which works in
+            // window coordinates and never sees the transform.
             var close = CloseRect();
             if (data != null && data.Plan != null && !string.IsNullOrEmpty(data.Plan.Id))
             {
@@ -358,7 +442,7 @@ namespace CommandCodeMonitor
                 var message = string.IsNullOrEmpty(data.Message) ? Lang.T("panel.noData") : data.Message;
                 var rect = new RectangleF(16, 54, PanelWidth - 32, 200);
                 graphics.DrawString(message, _fontLabel, _brushText, rect);
-                graphics.DrawString(Lang.T("panel.openConfig"), _fontSmall, _brushDim, 16f, 240f);
+                graphics.DrawString(Lang.T("panel.settingsHint"), _fontSmall, _brushDim, 16f, 240f);
                 return;
             }
 
@@ -376,9 +460,7 @@ namespace CommandCodeMonitor
             if (data.Credits != null && !string.IsNullOrEmpty(data.CreditsText))
                 graphics.DrawString(data.CreditsText, _fontSmall, _brushDim, 16f, 266f);
 
-            var footerY = bounds.Height - 18f;
-            if (accounts != null && accounts.Count > 1) DrawAccounts(graphics, accounts, footerY);
-
+            var footerY = contentHeight - 18f;
             graphics.DrawString(Lang.T("panel.updated", Format.Clock(data.FetchedAt)), _fontSmall, _brushDim, 16f, footerY);
 
             string note = null;
@@ -394,31 +476,65 @@ namespace CommandCodeMonitor
         }
 
         /// <summary>
-        /// The Accounts section: one row per account, laid out from the footer
-        /// upwards so the growth in <see cref="HeightFor"/> is exactly what it uses.
+        /// The tab strip: one tab per account, the active one filled and underlined
+        /// in the accent colour, the one under the pointer lit as well.
         ///
-        /// The account the figures above describe is drawn in the label font with a
-        /// marker in the left margin, so that row is identifiable without reading
-        /// the names; the others stay quiet.
+        /// This is the account switcher. It replaces the row-per-account section the
+        /// panel used to grow downwards: the figures below describe one account in
+        /// full, and the strip says which one and offers the others.
         /// </summary>
-        private void DrawAccounts(Graphics graphics, IList<AccountRow> accounts, float footerY)
+        private void DrawTabs(Graphics graphics, IList<AccountRow> accounts, Color accent)
         {
-            var firstRowY = footerY - 6 - accounts.Count * AccountRowHeight;
-            graphics.DrawString(Lang.T("panel.accounts"), _fontSmall, _brushDim, 16f, firstRowY - 20);
-            for (var index = 0; index < accounts.Count; index++)
+            var format = new StringFormat
             {
-                var row = accounts[index];
-                var y = firstRowY + index * AccountRowHeight;
-                var text = Lang.T("panel.accountRow", row.Name, row.Five, row.Weekly, row.Monthly);
-                if (!row.Active)
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center,
+                Trimming = StringTrimming.EllipsisCharacter,
+                FormatFlags = StringFormatFlags.NoWrap,
+            };
+            try
+            {
+                for (var index = 0; index < accounts.Count; index++)
                 {
-                    graphics.DrawString(text, _fontSmall, _brushDim, 16f, y);
-                    continue;
+                    var rect = TabRect(index, accounts.Count);
+                    var active = accounts[index].Active;
+
+                    if (active || index == TabHover)
+                    {
+                        using (var path = RoundedRect(rect, 4))
+                        using (var fill = new SolidBrush(active
+                            ? Color.FromArgb(52, 235, 235, 235)
+                            : Color.FromArgb(24, 235, 235, 235)))
+                            graphics.FillPath(fill, path);
+                    }
+
+                    graphics.DrawString(accounts[index].Name, active ? _fontLabel : _fontSmall,
+                        active ? _brushText : _brushDim, rect, format);
+
+                    if (!active) continue;
+                    using (var underline = new Pen(accent, 2f))
+                        graphics.DrawLine(underline, rect.Left + 2, rect.Bottom + 2, rect.Right - 2, rect.Bottom + 2);
                 }
-                using (var marker = new SolidBrush(_ok))
-                    graphics.FillEllipse(marker, 6, y + 7, 4, 4);
-                graphics.DrawString(text, _fontLabel, _brushText, 16f, y);
+
+                // The line the strip stands on, so the tabs read as tabs.
+                using (var separator = new Pen(_track, 1f))
+                    graphics.DrawLine(separator, 0, TabStripHeight - 1, PanelWidth, TabStripHeight - 1);
             }
+            finally
+            {
+                format.Dispose();
+            }
+        }
+
+        private static GraphicsPath RoundedRect(Rectangle rect, int radius)
+        {
+            var path = new GraphicsPath();
+            path.AddArc(rect.Left, rect.Top, radius * 2, radius * 2, 180, 90);
+            path.AddArc(rect.Right - radius * 2, rect.Top, radius * 2, radius * 2, 270, 90);
+            path.AddArc(rect.Right - radius * 2, rect.Bottom - radius * 2, radius * 2, radius * 2, 0, 90);
+            path.AddArc(rect.Left, rect.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
+            path.CloseFigure();
+            return path;
         }
 
         private void DrawLimitRow(Graphics graphics, int y, string title, LimitWindow window,

@@ -1,7 +1,6 @@
 {
   "code": "zh",
   "name": "简体中文",
-
   "panel": {
     "title": "Command Code",
     "fiveHour": "5 小时",
@@ -23,12 +22,12 @@
     "notUpdated": "未更新",
     "refreshing": "正在刷新...",
     "stale": "  （数据未更新）",
-    "openConfig": "右键点击图标 > 打开 config.json",
     "creditsLine": "额度: {used} / {limit} USD（剩余 {left}）",
     "creditsValue": "{used} / {limit} USD（剩余 {left}）",
-    "accountRow": "{name}  5h {five}  7d {weekly}  30d {monthly}"
+    "accountRow": "{name}  5h {five}  7d {weekly}  30d {monthly}",
+    "settingsHint": "右键点击图标 > 设置",
+    "tabTip": "切换监控的账户"
   },
-
   "tooltip": {
     "full": "Command Code {windows}",
     "fiveHour": "5h",
@@ -39,24 +38,21 @@
     "separator": " | ",
     "separatorShort": " - "
   },
-
   "status": {
     "starting": "Command Code: 正在启动",
     "authNeeded": "Command Code: 需要身份验证",
     "unavailable": "Command Code: 数据不可用",
     "noLimits": "Command Code: 没有生效的限制"
   },
-
   "menu": {
     "show": "显示限制",
     "refresh": "立即刷新",
-    "openConfig": "打开 config.json ({file})",
     "settings": "Command Code API 密钥",
     "autostart": "开机启动",
     "exit": "退出",
-    "account": "账户"
+    "account": "账户",
+    "settingsWindow": "设置…"
   },
-
   "error": {
     "rejected": "Command Code 拒绝了凭据（HTTP {status}）。请在 config.json 中更新 Provider-API 密钥。",
     "http": "来自 api.commandcode.ai 的 HTTP 错误 {status}。",
@@ -71,18 +67,15 @@
     "unexpected": "意外错误: {message}",
     "unexpectedResponse": "API 返回了意外的结构。"
   },
-
   "language": {
     "unknown": "未知语言 \"{code}\"，改用英语。",
     "missingFile": "找不到 \"{code}\" 的语言文件，改用英语。"
   },
-
   "units": {
     "billion": "B",
     "million": "M",
     "thousand": "K"
   },
-
   "format": {
     "tomorrow": "明天",
     "monthDay": "{month}{day}日",
@@ -91,7 +84,6 @@
     "minutes": "m",
     "lessThanMinute": "<1m"
   },
-
   "cli": {
     "tagline": "Command Code 用量监测",
     "usage": "用法: ccmeter [选项]",
@@ -120,7 +112,6 @@
     "profileListEntry": "  {id}  {name}",
     "noProfiles": "没有配置账户。"
   },
-
   "exe": {
     "helpTitle": "CommandCode Monitor",
     "helpStart": "  CommandCodeMonitor.exe                 启动托盘图标",
@@ -130,7 +121,40 @@
     "helpRender": "  CommandCodeMonitor.exe --render OUT    将气泡绘制为 PNG",
     "configPath": "路径: {path}"
   },
-
+  "settings": {
+    "title": "设置",
+    "accounts": "账户",
+    "accountsHint": "每个账户使用各自的密钥。",
+    "name": "名称",
+    "apiKey": "API 密钥",
+    "add": "+",
+    "addTip": "添加账户",
+    "remove": "−",
+    "removeTip": "删除该账户",
+    "show": "显示",
+    "hide": "隐藏",
+    "language": "语言",
+    "langAuto": "跟随 Windows",
+    "langEn": "英语",
+    "langIt": "意大利语",
+    "langZh": "中文",
+    "refresh": "刷新间隔（秒）",
+    "warn": "黄色告警从 %",
+    "critical": "红色告警从 %",
+    "ringShows": "圆环显示",
+    "monochrome": "单色图标",
+    "tooltip": "显示提示",
+    "save": "保存",
+    "cancel": "取消",
+    "close": "关闭",
+    "saved": "设置已保存。",
+    "saveFailed": "无法写入 config.json: {message}",
+    "nameRequired": "每个账户都需要名称。",
+    "keyRequired": "账户 \"{name}\" 没有 API 密钥。",
+    "duplicateName": "有两个账户同名 \"{name}\"。",
+    "keyKept": "沿用文件中的设置（{env}）",
+    "file": "文件: {path}"
+  },
   "selftest": {
     "title": "CommandCode Monitor - 自检",
     "executable": "  可执行文件 : {path}",
@@ -158,7 +182,6 @@
     "expected": "期望 <{expected}>，实际 <{actual}>",
     "languagesLoaded": "已加载语言文件（{codes}）"
   },
-
   "demo": {
     "starting": "demo: 启动，{show}ms 后显示气泡，{quit}ms 后退出",
     "closeRequested": "demo: 收到关闭请求 - {state}",
@@ -166,7 +189,6 @@
     "exiting": "demo: 退出，活动线程 = {threads}",
     "noData": "(无数据)"
   },
-
   "log": {
     "readingFailed": "读取 {path} 失败: {message}",
     "sessionStarted": "会话已启动（pid {pid}）",

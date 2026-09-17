@@ -31,10 +31,11 @@ namespace CommandCodeMonitor
         private const string RunValueName = "CommandCodeMonitor";
 
         private readonly MonitorConfig _config;
-        private readonly IconRenderer _renderer;
+        private IconRenderer _renderer;
         private readonly NotifyIcon _tray;
+        private readonly ContextMenuStrip _menu;
         private readonly PopupForm _popup;
-        private readonly ToolStripMenuItem _autostartItem;
+        private ToolStripMenuItem _autostartItem;
         private readonly System.Windows.Forms.Timer _tick;
         private readonly System.Windows.Forms.Timer _refresh;
         private readonly System.Windows.Forms.Timer _watchdog;
@@ -91,12 +92,7 @@ namespace CommandCodeMonitor
         /// <summary>Diagnostics for a demo run, written where a console can read it.</summary>
         private static void Diag(string message)
         {
-            try
-            {
-                var path = Path.Combine(Path.GetTempPath(), "ccm-diag.log");
-                File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss.fff") + "  " + message + Environment.NewLine);
-            }
-            catch { }
+            Diagnostics.Log(message);
         }
 
         /// <summary>Diagnostics for the demo run: what the bubble believes.</summary>
@@ -123,27 +119,16 @@ namespace CommandCodeMonitor
             _active = PickActiveAccount();
             _popup = new PopupForm(_renderer, BuildPanel);
             _popup.CloseRequested += (sender, args) => HideBubble();
+            _popup.TabSelected += index => ActivateAccountByIndex(index);
 
-            var menu = new ContextMenuStrip();
-            menu.Items.Add(Lang.T("menu.show"), null, (sender, args) => ShowBubble());
-            menu.Items.Add(Lang.T("menu.refresh"), null, (sender, args) => StartUpdate());
-            menu.Items.Add(Lang.T("menu.openConfig", Path.GetFileName(config.SourcePath)), null,
-                (sender, args) => OpenConfig());
-            menu.Items.Add(Lang.T("menu.settings"), null,
-                (sender, args) => Process.Start("https://commandcode.ai/settings/keys"));
-            // A single account needs no submenu: there is nothing to choose.
-            if (_accounts.Count > 1) menu.Items.Add(BuildAccountMenu());
-            _autostartItem = new ToolStripMenuItem(Lang.T("menu.autostart"), null, (sender, args) => ToggleAutostart());
-            _autostartItem.Checked = IsAutostartEnabled();
-            menu.Items.Add(_autostartItem);
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(Lang.T("menu.exit"), null, (sender, args) => Quit());
+            _menu = new ContextMenuStrip();
+            BuildMenu();
 
             _tray = new NotifyIcon
             {
                 Icon = _renderer.DrawStatusIcon(null, null),
                 Text = Lang.T("status.starting"),
-                ContextMenuStrip = menu,
+                ContextMenuStrip = _menu,
                 Visible = true,
             };
             _tray.MouseClick += (sender, args) =>
@@ -255,15 +240,22 @@ namespace CommandCodeMonitor
         }
 
         /// <summary>
-        /// Follow another account. The choice is runtime state and is written to
-        /// `.cache`, never to config.json: this program does not rewrite the file
-        /// the user maintains.
+        /// Follow another account. The choice is remembered in `.cache` and written
+        /// back as `activeProfile`, so the account the user picked in the bubble is
+        /// the one that opens next time even if the cache is cleared.
         /// </summary>
         private void ActivateAccount(MonitorAccount account)
         {
             if (account == null || account == _active) return;
             _active = account;
             _state.Remember(account.Profile.Id);
+            // Only a configuration that lists accounts has an `activeProfile` to
+            // write: an implicit single account is not one of them.
+            if (_accounts.Count > 1)
+            {
+                ConfigEditor.SetActiveProfile(_config.SourcePath, account.Profile.Id);
+                _config.ActiveProfile = account.Profile.Id;
+            }
             foreach (var entry in _accountItems)
                 entry.Value.Checked = entry.Key == account.Profile.Id;
 
@@ -273,6 +265,13 @@ namespace CommandCodeMonitor
             UpdateTray();
             if (_popup.Visible) _popup.Refresh_NoActivate();
             StartUpdate();
+        }
+
+        /// <summary>Follow the account a tab of the bubble stands for.</summary>
+        private void ActivateAccountByIndex(int index)
+        {
+            if (index < 0 || index >= _accounts.Count) return;
+            ActivateAccount(_accounts[index]);
         }
 
         // --- polling --------------------------------------------------------
@@ -430,7 +429,10 @@ namespace CommandCodeMonitor
 
         // --- presentation ---------------------------------------------------
 
-        /// <summary>What the bubble draws: the active reading plus one row per account.</summary>
+        /// <summary>
+        /// What the bubble draws: the active reading, plus one entry per account when
+        /// there are several - which is what the tab strip is built from.
+        /// </summary>
         private PanelModel BuildPanel()
         {
             var data = _active == null ? null : _active.Data;
@@ -447,18 +449,10 @@ namespace CommandCodeMonitor
                     {
                         Name = account.Profile.Name,
                         Active = account == _active,
-                        Five = PercentOf(account.Data, "fiveHour"),
-                        Weekly = PercentOf(account.Data, "weekly"),
-                        Monthly = PercentOf(account.Data, "monthly"),
                     });
                 }
             }
             return model;
-        }
-
-        private static string PercentOf(LimitsResult data, string metric)
-        {
-            return data == null ? "--" : data.PercentFor(metric);
         }
 
         private void UpdateTray()
@@ -616,18 +610,131 @@ namespace CommandCodeMonitor
 
         // --- menu actions ---------------------------------------------------
 
-        private void OpenConfig()
+        /// <summary>
+        /// The tray menu, rebuilt whenever the language or the account list
+        /// changes, so its labels and its Account submenu follow the configuration.
+        /// </summary>
+        private void BuildMenu()
+        {
+            // Emptied first, then disposed: an item removes itself from its owner
+            // as it goes, and disposing during the enumeration would be modifying
+            // the collection under the enumerator.
+            var previous = new List<ToolStripItem>();
+            foreach (ToolStripItem item in _menu.Items) previous.Add(item);
+            _menu.Items.Clear();
+            foreach (var item in previous) item.Dispose();
+            _accountItems.Clear();
+
+            _menu.Items.Add(Lang.T("menu.show"), null, (sender, args) => ShowBubble());
+            _menu.Items.Add(Lang.T("menu.refresh"), null, (sender, args) => StartUpdate());
+            // The settings window replaces "Open config.json in notepad": the file
+            // is edited here, validated, and written back by the program itself.
+            _menu.Items.Add(Lang.T("menu.settingsWindow"), null, (sender, args) => ShowSettings());
+            _menu.Items.Add(Lang.T("menu.settings"), null,
+                (sender, args) => Process.Start("https://commandcode.ai/settings/keys"));
+            // A single account needs no submenu: there is nothing to choose.
+            if (_accounts.Count > 1) _menu.Items.Add(BuildAccountMenu());
+            _autostartItem = new ToolStripMenuItem(Lang.T("menu.autostart"), null, (sender, args) => ToggleAutostart());
+            _autostartItem.Checked = IsAutostartEnabled();
+            _menu.Items.Add(_autostartItem);
+            _menu.Items.Add(new ToolStripSeparator());
+            _menu.Items.Add(Lang.T("menu.exit"), null, (sender, args) => Quit());
+        }
+
+        /// <summary>
+        /// Open the settings window, which edits and writes config.json itself.
+        ///
+        /// A missing configuration is seeded from config.example.json first, exactly
+        /// as the old menu entry did, so the window opens on a file with the
+        /// documented shape - comments included - rather than on an empty one.
+        ///
+        /// Whatever the configuration, the file or a control does, a failure here is
+        /// reported and logged rather than thrown: the settings window may not take
+        /// the tray down. The same guard covers taking up what was saved, which
+        /// rebuilds the accounts, the clients and the menu.
+        /// </summary>
+        private void ShowSettings()
         {
             var path = _config.SourcePath;
-            if (!File.Exists(path))
+            if (string.IsNullOrEmpty(path)) return;
+
+            try
             {
-                var example = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.example.json");
-                if (File.Exists(example))
+                if (!File.Exists(path))
                 {
-                    try { File.Copy(example, path); } catch { }
+                    var example = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.example.json");
+                    if (File.Exists(example))
+                    {
+                        try { File.Copy(example, path); } catch { }
+                    }
+                }
+
+                using (var settings = new SettingsForm(path, _config))
+                {
+                    settings.ShowDialog();
+                    if (settings.Saved) ApplyConfig();
                 }
             }
-            if (File.Exists(path)) Process.Start("notepad.exe", "\"" + path + "\"");
+            catch (Exception error)
+            {
+                Diagnostics.Report("settings", error);
+            }
+        }
+
+        /// <summary>
+        /// Take up a configuration that was just saved: the language, the interval,
+        /// the thresholds, the icon settings and the accounts themselves.
+        ///
+        /// The running tray is updated in place - the renderer and the menu are
+        /// rebuilt, the accounts and their clients are recreated - so no restart is
+        /// needed to see a change.
+        /// </summary>
+        private void ApplyConfig()
+        {
+            MonitorConfig reloaded;
+            try
+            {
+                reloaded = MonitorConfig.Load(_config.SourcePath);
+            }
+            catch (ConfigException error)
+            {
+                MessageBox.Show(error.Message, Lang.T("log.errorTitle"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var wanted = _active == null ? "" : _active.Profile.Id;
+            var previousLanguage = Lang.Active;
+            Lang.SetLanguage(reloaded.Language);
+            _config.Absorb(reloaded);
+
+            foreach (var account in _accounts) account.Dispose();
+            _accounts.Clear();
+            CreateAccounts();
+            // The account the user was looking at stays the one on screen when it
+            // still exists; a rename or a removal falls back to the usual order.
+            _active = FindAccount(wanted) ?? PickActiveAccount();
+
+            if (!string.Equals(previousLanguage, Lang.Active, StringComparison.Ordinal))
+            {
+                // The panel font family follows the language, and a font is chosen
+                // once per renderer.
+                var previous = _renderer;
+                _renderer = new IconRenderer(_config);
+                _popup.Renderer = _renderer;
+                previous.Dispose();
+            }
+
+            BuildMenu();
+            _refresh.Interval = Math.Max(15, _config.RefreshSeconds) * 1000;
+            _iconSignature = "";
+            UpdateTray();
+            if (_popup.Visible)
+            {
+                _popup.SyncSize();
+                _popup.Refresh_NoActivate();
+            }
+            StartUpdate();
         }
 
         private static bool IsAutostartEnabled()

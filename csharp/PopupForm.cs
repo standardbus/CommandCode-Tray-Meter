@@ -21,15 +21,25 @@ namespace CommandCodeMonitor
         private const int WsExNoActivate = 0x08000000;
         private const int WsExToolWindow = 0x00000080;
 
-        private readonly IconRenderer _renderer;
         private readonly Func<PanelModel> _model;
+        private readonly System.ComponentModel.Container _components = new System.ComponentModel.Container();
+        private readonly ToolTip _tips;
+        private IconRenderer _renderer;
+        /// <summary>Accounts in the model as last drawn, for the hit tests.</summary>
+        private int _accounts;
+        private int _tabHover = -1;
+        private bool _tipShown;
 
         public event EventHandler CloseRequested;
+
+        /// <summary>Raised with the index of the tab the user clicked.</summary>
+        public Action<int> TabSelected;
 
         public PopupForm(IconRenderer renderer, Func<PanelModel> model)
         {
             _renderer = renderer;
             _model = model;
+            _tips = new ToolTip(_components);
 
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
@@ -37,10 +47,26 @@ namespace CommandCodeMonitor
             TopMost = true;
             DoubleBuffered = true;
             BackColor = Color.FromArgb(32, 33, 36);
-            // The Accounts section needs one row per account, so the window is sized
-            // from the model rather than from a constant.
-            Size = new Size(IconRenderer.PanelWidth, IconRenderer.HeightFor(model().Accounts.Count));
+            // The panel grows by the tab strip when more than one account is
+            // configured, so the window is sized from the model, not a constant.
+            _accounts = Count();
+            Size = new Size(IconRenderer.PanelWidth, IconRenderer.HeightFor(_accounts));
             KeyPreview = true;
+        }
+
+        /// <summary>
+        /// The renderer that paints this bubble. The main form replaces it when the
+        /// language is changed from the settings window: the font family - and with
+        /// Chinese the whole face - is chosen when a renderer is built.
+        /// </summary>
+        public IconRenderer Renderer
+        {
+            get { return _renderer; }
+            set
+            {
+                _renderer = value;
+                if (Visible) Invalidate();
+            }
         }
 
         protected override bool ShowWithoutActivation
@@ -61,31 +87,100 @@ namespace CommandCodeMonitor
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            _renderer.DrawPanel(e.Graphics, new Rectangle(0, 0, Width, Height), _model());
+            var model = Built();
+            _renderer.DrawPanel(e.Graphics, new Rectangle(0, 0, Width, Height), model);
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
-            var hover = IconRenderer.CloseRect().Contains(e.Location);
+            var tab = TabAt(e.Location);
+            var hover = IconRenderer.CloseRect(Strip()).Contains(e.Location);
+
+            var changed = false;
             if (hover != _renderer.CloseHover)
             {
                 _renderer.CloseHover = hover;
-                Invalidate();
+                changed = true;
             }
+            if (tab != _tabHover)
+            {
+                _tabHover = tab;
+                _renderer.TabHover = tab;
+                changed = true;
+            }
+
+            // One tooltip for the whole strip: it says what a tab does, not which
+            // account it belongs to - the tab already carries the name.
+            var wanted = tab >= 0;
+            if (wanted != _tipShown)
+            {
+                _tipShown = wanted;
+                _tips.SetToolTip(this, wanted ? Lang.T("panel.tabTip") : "");
+            }
+
+            if (changed) Invalidate();
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
-            if (_renderer.CloseHover)
+            var changed = false;
+            if (_renderer.CloseHover) { _renderer.CloseHover = false; changed = true; }
+            if (_tabHover >= 0)
             {
-                _renderer.CloseHover = false;
-                Invalidate();
+                _tabHover = -1;
+                _renderer.TabHover = -1;
+                changed = true;
             }
+            if (_tipShown)
+            {
+                _tipShown = false;
+                _tips.SetToolTip(this, "");
+            }
+            if (changed) Invalidate();
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
-            if (IconRenderer.CloseRect().Contains(e.Location)) RequestClose();
+            if (e.Button != MouseButtons.Left) return;
+
+            var tab = TabAt(e.Location);
+            if (tab >= 0)
+            {
+                var handler = TabSelected;
+                if (handler != null) handler(tab);
+                return;
+            }
+
+            if (IconRenderer.CloseRect(Strip()).Contains(e.Location)) RequestClose();
+        }
+
+        /// <summary>The tab under a point, or -1: the same rectangles that are drawn.</summary>
+        private int TabAt(Point location)
+        {
+            return IconRenderer.TabAt(location, _accounts);
+        }
+
+        /// <summary>How far the figures below the strip are shifted down.</summary>
+        private int Strip()
+        {
+            return IconRenderer.StripHeightFor(_accounts);
+        }
+
+        private int Count()
+        {
+            var model = _model();
+            return model == null || model.Accounts == null ? 0 : model.Accounts.Count;
+        }
+
+        /// <summary>
+        /// The model to draw, remembering how many accounts it carries so the hit
+        /// tests and the size keep using the same number between two paints.
+        /// </summary>
+        private PanelModel Built()
+        {
+            var model = _model();
+            _accounts = model == null || model.Accounts == null ? 0 : model.Accounts.Count;
+            return model;
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -137,8 +232,15 @@ namespace CommandCodeMonitor
         /// </summary>
         public void SyncSize()
         {
-            var height = IconRenderer.HeightFor(_model().Accounts.Count);
+            Built();
+            var height = IconRenderer.HeightFor(_accounts);
             if (Height != height) Size = new Size(IconRenderer.PanelWidth, height);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _components.Dispose();
+            base.Dispose(disposing);
         }
 
         /// <summary>Redraw without stealing focus and without a flicker.</summary>

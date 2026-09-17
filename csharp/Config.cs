@@ -75,6 +75,44 @@ namespace CommandCodeMonitor
             return copy;
         }
 
+        /// <summary>
+        /// Take over the effective settings of a configuration read from the same
+        /// file, in place.
+        ///
+        /// The settings window saves and the tray keeps running: the holder of this
+        /// instance - the renderer, the HTTP clients built from it - must see the
+        /// new numbers without being rebuilt, so the fields are copied rather than
+        /// the reference replaced.
+        ///
+        /// `SourcePath` is deliberately not copied: it names the file both
+        /// configurations were read from, and it is this instance's identity.
+        /// </summary>
+        public void Absorb(MonitorConfig other)
+        {
+            if (other == null) return;
+            ApiKey = other.ApiKey;
+            ApiKeyEnv = other.ApiKeyEnv;
+            Language = other.Language;
+            Name = other.Name;
+            ActiveProfile = other.ActiveProfile;
+            Profiles = other.Profiles;
+            StrictCredential = other.StrictCredential;
+            ProfileName = other.ProfileName;
+            BaseUrl = other.BaseUrl;
+            WhoamiPath = other.WhoamiPath;
+            CreditsPath = other.CreditsPath;
+            SubscriptionsPath = other.SubscriptionsPath;
+            UsageSummaryPath = other.UsageSummaryPath;
+            RefreshSeconds = other.RefreshSeconds;
+            WarnThreshold = other.WarnThreshold;
+            CriticalThreshold = other.CriticalThreshold;
+            IconMetric = other.IconMetric;
+            Monochrome = other.Monochrome;
+            ShowTooltip = other.ShowTooltip;
+            CreditFiles = other.CreditFiles;
+            RequestTimeoutMs = other.RequestTimeoutMs;
+        }
+
         public static MonitorConfig Load(string path)
         {
             var config = new MonitorConfig();
@@ -93,6 +131,11 @@ namespace CommandCodeMonitor
             {
                 throw new ConfigException(Lang.T("error.configUnreadable", error.Message));
             }
+
+            // This program writes the file without a BOM, but another editor (or a
+            // PowerShell `Set-Content -Encoding UTF8` on 5.1) may have added one,
+            // and a leading U+FEFF is not JSON.
+            if (text.Length > 0 && text[0] == '\uFEFF') text = text.Substring(1);
 
             object root;
             try

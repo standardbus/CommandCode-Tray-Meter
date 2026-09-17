@@ -142,8 +142,10 @@ namespace CommandCodeMonitor
     ///
     /// It is the same `.cache/active-profile.json` the Node session and the
     /// PowerShell tray read and write - `{"id": "...", "at": <epoch ms>}` - so a
-    /// choice made in one of them is honoured by the others. It is never written
-    /// into config.json: this program does not rewrite the file the user maintains.
+    /// choice made in one of them is honoured by the others. The choice is also
+    /// written back as `activeProfile` in config.json (see
+    /// <see cref="ConfigEditor.SetActiveProfile"/>), so it survives even when the
+    /// cache does not.
     ///
     /// Every failure is swallowed. A monitor that cannot read or write its own
     /// state must still monitor.

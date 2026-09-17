@@ -48,6 +48,7 @@ namespace CommandCodeMonitor
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
+                InstallFailureHandlers();
 
                 MonitorConfig config;
                 try
@@ -61,13 +62,47 @@ namespace CommandCodeMonitor
                     return;
                 }
 
-                using (var main = new MainForm(config))
+                try
                 {
-                    if (HasFlag(args, "--demo")) main.EnableDemo(1500, 9000);
-                    Application.Run();
+                    using (var main = new MainForm(config))
+                    {
+                        if (HasFlag(args, "--demo")) main.EnableDemo(1500, 9000);
+                        Application.Run();
+                    }
+                }
+                catch (Exception error)
+                {
+                    // Nothing the tray does may end as a WinForms crash dialog.
+                    Diagnostics.Report("tray", error);
                 }
 
                 GC.KeepAlive(mutex);
+            }
+        }
+
+        /// <summary>
+        /// Route every unhandled failure to the program's own report instead of the
+        /// WinForms unhandled-exception dialog.
+        ///
+        /// That dialog is what the user sees when an event handler throws - English,
+        /// no context, and the settings window gone - so the mode is set explicitly
+        /// and both the UI thread and the background threads are hooked: a fetch
+        /// thread dying silently would be just as bad.
+        ///
+        /// Called before the first window exists, which is what the mode requires.
+        /// </summary>
+        private static void InstallFailureHandlers()
+        {
+            try
+            {
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+                Application.ThreadException += (sender, args) => Diagnostics.Report("ui", args.Exception);
+                AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
+                    Diagnostics.Report("background", args.ExceptionObject as Exception);
+            }
+            catch (Exception error)
+            {
+                Diagnostics.Log("handlers: " + error);
             }
         }
 

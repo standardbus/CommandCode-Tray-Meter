@@ -104,10 +104,17 @@ function Get-CcDateTime {
   return $Date.ToString($Format, $culture)
 }
 
+# `-Language` renders a key with a table other than the active one, which the
+# settings window needs: it is drawn in the language stored in config.json, while
+# the tray keeps running in the language it started with until the save is
+# written and the configuration is re-read. An empty value means "the active one".
 function Get-CcText {
-  param([string]$Key, [hashtable]$Params = $null)
+  param([string]$Key, [hashtable]$Params = $null, [string]$Language = "")
+  $code = $script:CcLanguage
+  if ($Language) { $code = $Language }
+  if (-not $code) { $code = $script:CcDefaultLanguage }
   $value = $null
-  $table = Get-CcLanguageTable $script:CcLanguage
+  $table = Get-CcLanguageTable $code
   if ($table) {
     $value = $table
     foreach ($part in $Key.Split(".")) {
@@ -116,7 +123,7 @@ function Get-CcText {
       if ($null -eq $property) { $value = $null } else { $value = $property.Value }
     }
   }
-  if ($value -isnot [string] -and $script:CcLanguage -ne $script:CcDefaultLanguage) {
+  if ($value -isnot [string] -and $code -ne $script:CcDefaultLanguage) {
     # The English table is the fallback for a key the active language is missing.
     $fallback = Get-CcLanguageTable $script:CcDefaultLanguage
     $value = $fallback

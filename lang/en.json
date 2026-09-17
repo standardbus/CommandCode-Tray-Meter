@@ -1,7 +1,6 @@
 {
   "code": "en",
   "name": "English",
-
   "panel": {
     "title": "Command Code",
     "fiveHour": "5 hours",
@@ -23,12 +22,12 @@
     "notUpdated": "not updated",
     "refreshing": "refreshing...",
     "stale": "  (data not updated)",
-    "openConfig": "Right-click the icon > Open config.json",
     "creditsLine": "Credits: {used} of {limit} USD  ({left} left)",
     "creditsValue": "{used} of {limit} USD  ({left} left)",
-    "accountRow": "{name}  5h {five}  7d {weekly}  30d {monthly}"
+    "accountRow": "{name}  5h {five}  7d {weekly}  30d {monthly}",
+    "settingsHint": "Right-click the icon > Settings",
+    "tabTip": "Switch the monitored account"
   },
-
   "tooltip": {
     "full": "Command Code {windows}",
     "fiveHour": "5h",
@@ -39,24 +38,21 @@
     "separator": " | ",
     "separatorShort": " - "
   },
-
   "status": {
     "starting": "Command Code: starting up",
     "authNeeded": "Command Code: authentication required",
     "unavailable": "Command Code: data unavailable",
     "noLimits": "Command Code: no active limits"
   },
-
   "menu": {
     "show": "Show limits",
     "refresh": "Refresh now",
-    "openConfig": "Open config.json ({file})",
     "settings": "Command Code API keys",
     "autostart": "Start with Windows",
     "exit": "Exit",
-    "account": "Account"
+    "account": "Account",
+    "settingsWindow": "Settings…"
   },
-
   "error": {
     "rejected": "Command Code rejected the credential (HTTP {status}). Renew the Provider-API key in config.json.",
     "http": "HTTP error {status} from api.commandcode.ai.",
@@ -71,18 +67,15 @@
     "unexpected": "Unexpected error: {message}",
     "unexpectedResponse": "The API answered with an unexpected shape."
   },
-
   "language": {
     "unknown": "Unknown language \"{code}\"; falling back to English.",
     "missingFile": "Language file for \"{code}\" not found; falling back to English."
   },
-
   "units": {
     "billion": "B",
     "million": "M",
     "thousand": "K"
   },
-
   "format": {
     "tomorrow": "tomorrow",
     "monthDay": "{day} {month}",
@@ -91,7 +84,6 @@
     "minutes": "m",
     "lessThanMinute": "<1m"
   },
-
   "cli": {
     "tagline": "Command Code limits meter",
     "usage": "Usage: ccmeter [options]",
@@ -120,7 +112,6 @@
     "profileListEntry": "  {id}  {name}",
     "noProfiles": "No accounts configured."
   },
-
   "exe": {
     "helpTitle": "CommandCode Monitor",
     "helpStart": "  CommandCodeMonitor.exe                 starts the tray icon",
@@ -130,7 +121,40 @@
     "helpRender": "  CommandCodeMonitor.exe --render OUT    draws the bubble into a PNG",
     "configPath": "Path: {path}"
   },
-
+  "settings": {
+    "title": "Settings",
+    "accounts": "Accounts",
+    "accountsHint": "Each account is read with its own key.",
+    "name": "Name",
+    "apiKey": "API key",
+    "add": "+",
+    "addTip": "Add another account",
+    "remove": "−",
+    "removeTip": "Remove this account",
+    "show": "Show",
+    "hide": "Hide",
+    "language": "Language",
+    "langAuto": "Follow Windows",
+    "langEn": "English",
+    "langIt": "Italian",
+    "langZh": "Chinese",
+    "refresh": "Refresh every (seconds)",
+    "warn": "Amber from %",
+    "critical": "Red from %",
+    "ringShows": "Ring follows",
+    "monochrome": "Monochrome icon",
+    "tooltip": "Show tooltip",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "saved": "Settings saved.",
+    "saveFailed": "Could not write config.json: {message}",
+    "nameRequired": "Every account needs a name.",
+    "keyRequired": "Account \"{name}\" has no API key.",
+    "duplicateName": "Two accounts are named \"{name}\".",
+    "keyKept": "kept from the file ({env})",
+    "file": "File: {path}"
+  },
   "selftest": {
     "title": "CommandCode Monitor - selftest",
     "executable": "  executable : {path}",
@@ -158,7 +182,6 @@
     "expected": "expected <{expected}>, got <{actual}>",
     "languagesLoaded": "language files loaded ({codes})"
   },
-
   "demo": {
     "starting": "demo: starting, bubble in {show}ms, exit in {quit}ms",
     "closeRequested": "demo: close requested - {state}",
@@ -166,7 +189,6 @@
     "exiting": "demo: exiting, live threads = {threads}",
     "noData": "(no data)"
   },
-
   "log": {
     "readingFailed": "reading {path} failed: {message}",
     "sessionStarted": "session started (pid {pid})",

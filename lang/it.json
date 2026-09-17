@@ -1,7 +1,6 @@
 {
   "code": "it",
   "name": "Italiano",
-
   "panel": {
     "title": "Command Code",
     "fiveHour": "5 ore",
@@ -23,12 +22,12 @@
     "notUpdated": "non aggiornato",
     "refreshing": "aggiornamento...",
     "stale": "  (dati non aggiornati)",
-    "openConfig": "Clic destro sull'icona > Apri config.json",
     "creditsLine": "Crediti: {used} su {limit} USD  ({left} rimasti)",
     "creditsValue": "{used} su {limit} USD  ({left} rimasti)",
-    "accountRow": "{name}  5h {five}  7g {weekly}  30g {monthly}"
+    "accountRow": "{name}  5h {five}  7g {weekly}  30g {monthly}",
+    "settingsHint": "Clic destro sull'icona > Impostazioni",
+    "tabTip": "Cambia l'account monitorato"
   },
-
   "tooltip": {
     "full": "Command Code {windows}",
     "fiveHour": "5h",
@@ -39,24 +38,21 @@
     "separator": " | ",
     "separatorShort": " - "
   },
-
   "status": {
     "starting": "Command Code: avvio in corso",
     "authNeeded": "Command Code: accesso richiesto",
     "unavailable": "Command Code: dati non disponibili",
     "noLimits": "Command Code: nessun limite attivo"
   },
-
   "menu": {
     "show": "Mostra limiti",
     "refresh": "Aggiorna ora",
-    "openConfig": "Apri config.json ({file})",
     "settings": "Chiavi API di Command Code",
     "autostart": "Avvia con Windows",
     "exit": "Esci",
-    "account": "Account"
+    "account": "Account",
+    "settingsWindow": "Impostazioni…"
   },
-
   "error": {
     "rejected": "Command Code ha rifiutato la credenziale (HTTP {status}). Rinnova la Provider-API key in config.json.",
     "http": "Errore HTTP {status} da api.commandcode.ai.",
@@ -71,18 +67,15 @@
     "unexpected": "Errore imprevisto: {message}",
     "unexpectedResponse": "L'API ha risposto con una struttura inattesa."
   },
-
   "language": {
     "unknown": "Lingua \"{code}\" sconosciuta: uso l'inglese.",
     "missingFile": "File di lingua per \"{code}\" non trovato: uso l'inglese."
   },
-
   "units": {
     "billion": "Mld",
     "million": "Mln",
     "thousand": "K"
   },
-
   "format": {
     "tomorrow": "domani",
     "monthDay": "{day} {month}",
@@ -91,7 +84,6 @@
     "minutes": "m",
     "lessThanMinute": "<1m"
   },
-
   "cli": {
     "tagline": "Meter dei limiti di Command Code",
     "usage": "Uso: ccmeter [opzioni]",
@@ -120,7 +112,6 @@
     "profileListEntry": "  {id}  {name}",
     "noProfiles": "Nessun account configurato."
   },
-
   "exe": {
     "helpTitle": "CommandCode Monitor",
     "helpStart": "  CommandCodeMonitor.exe                 avvia l'icona nella tray",
@@ -130,7 +121,40 @@
     "helpRender": "  CommandCodeMonitor.exe --render OUT    disegna la bolla in un PNG",
     "configPath": "Percorso: {path}"
   },
-
+  "settings": {
+    "title": "Impostazioni",
+    "accounts": "Account",
+    "accountsHint": "Ogni account viene letto con la sua chiave.",
+    "name": "Nome",
+    "apiKey": "Chiave API",
+    "add": "+",
+    "addTip": "Aggiungi un altro account",
+    "remove": "−",
+    "removeTip": "Rimuovi questo account",
+    "show": "Mostra",
+    "hide": "Nascondi",
+    "language": "Lingua",
+    "langAuto": "Segui Windows",
+    "langEn": "Inglese",
+    "langIt": "Italiano",
+    "langZh": "Cinese",
+    "refresh": "Aggiorna ogni (secondi)",
+    "warn": "Ambra da %",
+    "critical": "Rosso da %",
+    "ringShows": "Anello su",
+    "monochrome": "Icona monocromatica",
+    "tooltip": "Mostra tooltip",
+    "save": "Salva",
+    "cancel": "Annulla",
+    "close": "Chiudi",
+    "saved": "Impostazioni salvate.",
+    "saveFailed": "Impossibile scrivere config.json: {message}",
+    "nameRequired": "Ogni account deve avere un nome.",
+    "keyRequired": "L'account \"{name}\" non ha una chiave API.",
+    "duplicateName": "Due account si chiamano \"{name}\".",
+    "keyKept": "mantenuta dal file ({env})",
+    "file": "File: {path}"
+  },
   "selftest": {
     "title": "CommandCode Monitor - autotest",
     "executable": "  eseguibile : {path}",
@@ -158,7 +182,6 @@
     "expected": "atteso <{expected}>, ottenuto <{actual}>",
     "languagesLoaded": "file di lingua caricati ({codes})"
   },
-
   "demo": {
     "starting": "demo: avvio, bolla tra {show}ms, uscita tra {quit}ms",
     "closeRequested": "demo: chiusura richiesta - {state}",
@@ -166,7 +189,6 @@
     "exiting": "demo: uscita, thread attivi = {threads}",
     "noData": "(nessun dato)"
   },
-
   "log": {
     "readingFailed": "lettura di {path} fallita: {message}",
     "sessionStarted": "sessione avviata (pid {pid})",
