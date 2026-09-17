@@ -116,7 +116,7 @@ describe("renderPanel", () => {
     assert.match(text, /5 hours\s+16%\s+\S{20}\s+2\.28 \/ 14\s+reset in /);
     assert.match(text, /Weekly\s+55% /);
     assert.match(text, /Monthly\s+27% /);
-    assert.match(text, /Tokens\s+577\.1 M/);
+    assert.match(text, /Tokens used\s+577\.1 M/);
     assert.match(text, /Runs\s+3120/);
     assert.match(text, /Credits\s+18\.97 of 69\.82 USD\s+\(50\.85 left\)/);
   });

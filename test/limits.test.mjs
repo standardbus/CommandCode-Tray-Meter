@@ -359,7 +359,7 @@ describe("buildTooltip", () => {
     });
     assert.ok(tooltip.length <= 63, `tooltip too long: ${tooltip.length}`);
     assert.match(tooltip, /5h 40%/);
-    assert.match(tooltip, /7g 5%/);
+    assert.match(tooltip, /7d 5%/);
   });
 
   test("names the failure state instead of showing stale numbers", () => {

@@ -3,6 +3,13 @@
 
   "apiKey": "",
 
+  "$comment_language": "Interface language: en, it, zh, or auto to follow the operating system. Default: en.",
+  "language": "en",
+
+  "$comment_profiles": "To monitor several accounts, list them here instead of using apiKey. Each entry needs an id (lower-case letters, digits, hyphens, unique) and its own key: apiKey inline, or apiKeyEnv naming an environment variable. activeProfile picks the account the tray icon follows; the Account menu switches it at runtime. Leaving this list empty keeps the single-account behaviour above. Example: [{ \"id\": \"personal\", \"name\": \"Personal\", \"apiKey\": \"user_...\" }, { \"id\": \"work\", \"name\": \"Work\", \"apiKeyEnv\": \"COMMANDCODE_API_KEY_WORK\" }]",
+  "profiles": [],
+  "activeProfile": "",
+
   "$comment_endpoints": "The /alpha surface is not publicly documented: if Command Code changes it, fix the paths here without touching the code.",
   "endpoints": {
     "baseUrl": "https://api.commandcode.ai",

@@ -12,11 +12,13 @@
  * defensively and every endpoint path is overridable from `config.json`.
  */
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 /** Machine-readable outcome codes surfaced to the tray. */
+import { currentLocale, t } from "./i18n.mjs";
+
 export const STATUS = Object.freeze({
   AUTH_NEEDED: "auth_needed",
   NETWORK_ERROR: "network_error",
@@ -59,14 +61,10 @@ const CREDENTIAL_KEYS = ["command-code", "commandcode"];
 /** Object fields that may hold the token itself. */
 const TOKEN_FIELDS = ["access", "apiKey", "key"];
 
-const MONTHS_SHORT = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
-const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAYS_LONG = [
-  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
-];
+/** Month and weekday names come from the active language's locale. */
+const monthShort = (date) => new Intl.DateTimeFormat(currentLocale(), { month: "short" }).format(date);
+const weekdayShort = (date) => new Intl.DateTimeFormat(currentLocale(), { weekday: "short" }).format(date);
+const weekdayLong = (date) => new Intl.DateTimeFormat(currentLocale(), { weekday: "long" }).format(date);
 
 // --- small helpers ---------------------------------------------------------
 
@@ -125,15 +123,19 @@ function toIsoOrUndefined(value) {
 /** `"3h 12m"`, `"2d 4h"`, `"45m"`, `"<1m"`. */
 export function formatDelta(ms) {
   if (!Number.isFinite(ms)) return "-";
-  if (ms <= 0) return "<1m";
+  if (ms <= 0) return t("format.lessThanMinute");
   const totalMinutes = Math.floor(ms / 60000);
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const minutes = totalMinutes % 60;
-  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  if (totalMinutes > 0) return `${totalMinutes}m`;
-  return "<1m";
+  if (days > 0) return hours > 0 ? `${days}${t("format.days")} ${hours}${t("format.hours")}` : `${days}${t("format.days")}`;
+  if (hours > 0) {
+    return minutes > 0
+      ? `${hours}${t("format.hours")} ${minutes}${t("format.minutes")}`
+      : `${hours}${t("format.hours")}`;
+  }
+  if (totalMinutes > 0) return `${totalMinutes}${t("format.minutes")}`;
+  return t("format.lessThanMinute");
 }
 
 /** Percentage shown as an integer, matching the CLI's meter style. */
@@ -149,7 +151,7 @@ export function formatPercent(percent) {
  * locale (Italian here): the raw API values carry nine decimals and render as
  * unreadable noise like `2.000223421`.
  */
-export function formatAmount(value, locale = "en-US") {
+export function formatAmount(value, locale = currentLocale()) {
   const numeric = toFiniteNumber(value);
   if (numeric === undefined) return "-";
   const rounded = Math.round(numeric * 100) / 100;
@@ -161,7 +163,7 @@ export function formatAmount(value, locale = "en-US") {
 }
 
 /** `"2 / 14"` — the used-against-cap pair shown under each bar. */
-export function formatUsagePair(used, cap, locale = "en-US") {
+export function formatUsagePair(used, cap, locale = currentLocale()) {
   return `${formatAmount(used, locale)} / ${formatAmount(cap, locale)}`;
 }
 
@@ -178,9 +180,9 @@ export function formatResetAt(iso, now = Date.now()) {
   const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const dayDiff = Math.round((startOfDay(date) - startOfDay(reference)) / 86400000);
   if (dayDiff <= 0) return hhmm;
-  if (dayDiff === 1) return `tomorrow ${hhmm}`;
-  if (dayDiff < 7) return `${DAYS_SHORT[date.getDay()]} ${hhmm}`;
-  return `${date.getDate()} ${MONTHS_SHORT[date.getMonth()]} ${hhmm}`;
+  if (dayDiff === 1) return `${t("format.tomorrow")} ${hhmm}`;
+  if (dayDiff < 7) return `${weekdayShort(date)} ${hhmm}`;
+  return `${t("format.monthDay", { day: date.getDate(), month: monthShort(date) })} ${hhmm}`;
 }
 
 /** Absolute date+time for the "last updated" footer: `"20:14:07"`. */
@@ -199,7 +201,7 @@ export function formatLongResetAt(iso, now = Date.now()) {
   if (!Number.isFinite(parsed)) return "-";
   const date = new Date(parsed);
   const hhmm = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-  const dayName = DAYS_LONG[date.getDay()];
+  const dayName = weekdayLong(date);
   return `${dayName} ${hhmm}`;
 }
 
@@ -302,8 +304,27 @@ export function resolveCredential(config = {}, options = {}) {
   const env = options.env ?? process.env;
   const now = options.now ?? Date.now();
 
-  const envToken = String(env?.COMMANDCODE_API_KEY ?? "").trim();
-  if (envToken) return { token: envToken, source: "COMMANDCODE_API_KEY" };
+  const envName = String(config.apiKeyEnv ?? "").trim();
+  // A named account resolves only from its own fields. An ambient
+  // COMMANDCODE_API_KEY must not stand in for an account that configured its own
+  // key: silently monitoring the wrong account is worse than saying so.
+  if (config.strictCredential === true) {
+    if (envName) {
+      const named = String(env?.[envName] ?? "").trim();
+      if (named) return { token: named, source: envName };
+    }
+    const own = String(config.apiKey ?? config.token ?? "").trim();
+    if (own) return { token: own, source: "config.json" };
+    return {
+      error: STATUS.AUTH_NEEDED,
+      source: "none",
+      message: t("error.profileNoCredentials", { id: config.profileName ?? "" }),
+    };
+  }
+
+  const ambientName = envName || "COMMANDCODE_API_KEY";
+  const envToken = String(env?.[ambientName] ?? "").trim();
+  if (envToken) return { token: envToken, source: ambientName };
 
   const configToken = String(config.apiKey ?? config.token ?? "").trim();
   if (configToken) return { token: configToken, source: "config.json" };
@@ -326,15 +347,13 @@ export function resolveCredential(config = {}, options = {}) {
     return {
       error: STATUS.AUTH_NEEDED,
       source: "none",
-      message:
-        "Command Code session expired. Open the CLI and sign in again, or paste a Provider-API key into config.json.",
+      message: t("error.expired"),
     };
   }
   return {
     error: STATUS.AUTH_NEEDED,
     source: "none",
-    message:
-      "No Command Code credentials. Paste a Provider-API key into config.json (commandcode.ai/settings/keys) or set COMMANDCODE_API_KEY.",
+    message: t("error.noCredentials"),
   };
 }
 
@@ -362,6 +381,11 @@ export function normalizeConfig(raw = {}) {
   return {
     apiKey: typeof record.apiKey === "string" ? record.apiKey : "",
     token: typeof record.token === "string" ? record.token : "",
+    name: typeof record.name === "string" ? record.name : "",
+    apiKeyEnv: typeof record.apiKeyEnv === "string" ? record.apiKeyEnv : "",
+    language: typeof record.language === "string" ? record.language : "",
+    activeProfile: typeof record.activeProfile === "string" ? record.activeProfile : "",
+    profiles: Array.isArray(record.profiles) ? record.profiles : [],
     endpoints,
     refreshSeconds: refresh !== undefined && refresh >= 15 ? refresh : DEFAULT_REFRESH_SECONDS,
     requestTimeoutMs: timeout !== undefined && timeout >= 1000 ? timeout : DEFAULT_REQUEST_TIMEOUT_MS,
@@ -515,7 +539,7 @@ export function computeMonthlyWindow(credits, period, spend) {
  * unreadable in full, so large values are scaled and the exact figure is kept in
  * the tooltip.
  */
-export function formatTokenCount(value, locale = "en-US") {
+export function formatTokenCount(value, locale = currentLocale()) {
   const numeric = toFiniteNumber(value);
   if (numeric === undefined || numeric < 0) return "-";
   const scale = (divisor, suffix, decimals) => {
@@ -525,9 +549,9 @@ export function formatTokenCount(value, locale = "en-US") {
       maximumFractionDigits: decimals,
     })} ${suffix}`;
   };
-  if (numeric >= 1e9) return scale(1e9, "B", 2);
-  if (numeric >= 1e6) return scale(1e6, "M", 1);
-  if (numeric >= 1e3) return scale(1e3, "K", 1);
+  if (numeric >= 1e9) return scale(1e9, t("units.billion"), 2);
+  if (numeric >= 1e6) return scale(1e6, t("units.million"), 1);
+  if (numeric >= 1e3) return scale(1e3, t("units.thousand"), 1);
   return numeric.toLocaleString(locale);
 }
 
@@ -564,9 +588,11 @@ export function buildDisplay(result, now = Date.now()) {
   }
   if (result.credits) {
     display.creditsPercent = formatPercent(result.credits.percent);
-    display.creditsText = `Credits: ${formatAmount(result.credits.used)} of ${formatAmount(
-      result.credits.limit,
-    )} USD  (${formatAmount(result.credits.remaining)} left)`;
+    display.creditsText = t("panel.creditsLine", {
+      used: formatAmount(result.credits.used),
+      limit: formatAmount(result.credits.limit),
+      left: formatAmount(result.credits.remaining),
+    });
   }
   if (result.tokens) {
     display.tokensValue = formatTokenCount(result.tokens.total);
@@ -588,18 +614,25 @@ export function buildDisplay(result, now = Date.now()) {
 /** Compact tooltip text (Windows caps a tray tooltip at 63 characters). */
 export function buildTooltip(result) {
   if (result.status) {
-    const label = result.status === STATUS.AUTH_NEEDED ? "authentication required" : "data unavailable";
-    return `Command Code: ${label}`;
+    return result.status === STATUS.AUTH_NEEDED ? t("status.authNeeded") : t("status.unavailable");
   }
   const parts = [];
   if (result.display?.fiveHourPercent) {
-    const suffix = result.display.fiveHourResetIn ? ` (reset ${result.display.fiveHourResetIn})` : "";
-    parts.push(`5h ${result.display.fiveHourPercent}${suffix}`);
+    const label = t("tooltip.fiveHour");
+    parts.push(
+      result.display.fiveHourResetIn
+        ? t("tooltip.windowReset", { label, percent: result.display.fiveHourPercent, reset: result.display.fiveHourResetIn })
+        : t("tooltip.window", { label, percent: result.display.fiveHourPercent }),
+    );
   }
-  if (result.display?.weeklyPercent) parts.push(`7g ${result.display.weeklyPercent}`);
-  if (result.display?.monthlyPercent) parts.push(`30g ${result.display.monthlyPercent}`);
-  if (parts.length === 0) return "Command Code: no active limits";
-  return `Command Code ${parts.join(" | ")}`;
+  if (result.display?.weeklyPercent) {
+    parts.push(t("tooltip.window", { label: t("tooltip.weekly"), percent: result.display.weeklyPercent }));
+  }
+  if (result.display?.monthlyPercent) {
+    parts.push(t("tooltip.window", { label: t("tooltip.monthly"), percent: result.display.monthlyPercent }));
+  }
+  if (parts.length === 0) return t("status.noLimits");
+  return t("tooltip.full", { windows: parts.join(t("tooltip.separator")) });
 }
 
 // --- HTTP ------------------------------------------------------------------
@@ -691,20 +724,14 @@ export async function fetchLimits(config, options = {}) {
         ...base,
         status: STATUS.AUTH_NEEDED,
         httpStatus: status,
-        message:
-          "Command Code rejected the credential (HTTP " +
-          status +
-          "). Renew the Provider-API key in config.json.",
+        message: t("error.rejected", { status }),
       };
     }
     return {
       ...base,
       status: status === undefined ? STATUS.NETWORK_ERROR : STATUS.HTTP_ERROR,
       httpStatus: status,
-      message:
-        status === undefined
-          ? "Network unreachable at api.commandcode.ai."
-          : `HTTP error ${status} from api.commandcode.ai.`,
+      message: status === undefined ? t("error.network") : t("error.http", { status }),
     };
   }
 
@@ -717,7 +744,7 @@ export async function fetchLimits(config, options = {}) {
     return {
       ...base,
       status: STATUS.HTTP_ERROR,
-      message: "Unexpected response from /alpha/billing/credits (unrecognised schema).",
+      message: t("error.schema"),
     };
   }
 
@@ -835,4 +862,130 @@ export function redact(text) {
   return String(text ?? "")
     .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 <redacted>")
     .replace(/\b(cc|sk|cmd)[-_][A-Za-z0-9._-]{16,}\b/g, "<redacted-token>");
+}
+
+// --- profiles --------------------------------------------------------------
+
+/** An account id: lower case, digits and hyphens, usable as a config key. */
+const PROFILE_ID = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * Turn the configuration into the list of accounts to monitor.
+ *
+ * A configuration without `profiles` is one implicit account, which is exactly
+ * how the monitor behaved before profiles existed: every existing config.json
+ * keeps working untouched. Each account is fetched through the same code path,
+ * with only its credential fields replaced, so nothing else can differ between
+ * accounts.
+ *
+ * @throws Error naming the offending entry when the list cannot be used.
+ */
+export function resolveProfiles(config = {}) {
+  const list = Array.isArray(config.profiles) ? config.profiles : [];
+  if (list.length === 0) {
+    return [
+      {
+        id: "default",
+        name: String(config.name ?? "").trim() || "default",
+        apiKey: config.apiKey ?? "",
+        apiKeyEnv: config.apiKeyEnv ?? "",
+        config,
+      },
+    ];
+  }
+  const seen = new Set();
+  const profiles = [];
+  list.forEach((entry, index) => {
+    const record = asRecord(entry);
+    if (!record) throw new Error(`entry ${index + 1} is not an object`);
+    const id = String(record.id ?? "").trim().toLowerCase();
+    if (!PROFILE_ID.test(id)) throw new Error(`entry ${index + 1} has an invalid id "${record.id ?? ""}"`);
+    if (seen.has(id)) throw new Error(`duplicate account id "${id}"`);
+    seen.add(id);
+    const apiKey = String(record.apiKey ?? "").trim();
+    const apiKeyEnv = String(record.apiKeyEnv ?? "").trim();
+    if (!apiKey && !apiKeyEnv) throw new Error(`account "${id}" has neither apiKey nor apiKeyEnv`);
+    profiles.push({
+      id,
+      name: String(record.name ?? "").trim() || id,
+      apiKey,
+      apiKeyEnv,
+      config: { ...config, profiles: [], apiKey, apiKeyEnv, strictCredential: true, profileName: id },
+    });
+  });
+  return profiles;
+}
+
+/** The account the tray icon follows: `activeProfile`, else the first one. */
+export function activeProfileId(config = {}, profiles = resolveProfiles(config)) {
+  const wanted = String(config.activeProfile ?? "").trim().toLowerCase();
+  return profiles.some((profile) => profile.id === wanted) ? wanted : profiles[0]?.id ?? "";
+}
+
+/** Where the tray records the account the user picked from its menu. */
+export const ACTIVE_PROFILE_PATH = ".cache/active-profile.json";
+
+/**
+ * The account that is actually active, cache first.
+ *
+ * Choosing an account in the tray menu is runtime state, not configuration: the
+ * monitor never rewrites config.json, so the choice lives in the cache and wins
+ * over `activeProfile`. An id that names no account (a stale cache after the
+ * configuration changed) is ignored rather than trusted.
+ *
+ * @returns the id of one of `profiles`, or "" when there are none.
+ */
+export function resolveActiveProfileId(config = {}, profiles = resolveProfiles(config), options = {}) {
+  const fs = options.fs ?? { readFileSync };
+  const cachePath = options.cachePath ?? ACTIVE_PROFILE_PATH;
+  const known = (id) => (id && profiles.some((profile) => profile.id === id) ? id : "");
+  try {
+    const record = asRecord(JSON.parse(String(fs.readFileSync(cachePath, "utf8"))));
+    const cached = known(String(record?.id ?? "").trim().toLowerCase());
+    if (cached) return cached;
+  } catch {
+    // An absent or malformed cache simply means "no choice recorded yet".
+  }
+  return activeProfileId(config, profiles);
+}
+
+/**
+ * Persist a menu choice. Best effort: a cache that cannot be written must not
+ * stop the tray from switching account for this run.
+ */
+export function writeActiveProfileId(id, options = {}) {
+  const fs = options.fs ?? { writeFileSync };
+  const cachePath = options.cachePath ?? ACTIVE_PROFILE_PATH;
+  try {
+    // The directory is what a fresh checkout is missing; writing the file alone
+    // would silently fail and lose the choice on the next start.
+    if (options.mkdir !== false) mkdirSync(dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, JSON.stringify({ id: String(id ?? ""), at: Date.now() }), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fetch every configured account, in parallel.
+ *
+ * One account failing never hides the others: each entry carries its own
+ * result, and a credential that is missing for one account is reported against
+ * that account rather than as a global failure.
+ *
+ * @returns [{ profile, result }] in configuration order.
+ */
+export async function fetchAllProfiles(config = {}, options = {}) {
+  let profiles;
+  try {
+    profiles = options.profiles ?? resolveProfiles(config);
+  } catch (error) {
+    return [{ profile: { id: "config", name: "config" }, result: emptyResult(STATUS.HTTP_ERROR, t("error.profilesInvalid", { message: error.message })) }];
+  }
+  const only = Array.isArray(options.only) && options.only.length > 0 ? options.only.map((id) => String(id).toLowerCase()) : null;
+  const wanted = only ? profiles.filter((profile) => only.includes(profile.id)) : profiles;
+  return Promise.all(
+    wanted.map(async (profile) => ({ profile, result: await fetchLimits(profile.config, options) })),
+  );
 }

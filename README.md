@@ -4,7 +4,7 @@
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white)](#)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-93%20Node%20%2B%2032%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
+[![Tests](https://img.shields.io/badge/tests-120%20Node%20%2B%2032%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
 [![Executable size](https://img.shields.io/badge/executable-78%20KB-4c8eda)](#)
 
 [![Release](https://img.shields.io/github/v/release/standardbus/CommandCode-Tray-Meter?label=release&color=4c8eda&logo=github)](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)
@@ -139,6 +139,9 @@ Useful options:
 ./bin/ccmeter --watch 30         # ...or on one you choose
 ./bin/ccmeter --compact          # one line, for a tmux status bar or a prompt
 ./bin/ccmeter --json             # the raw payload, for scripting
+./bin/ccmeter --profile work     # only this account (repeatable)
+./bin/ccmeter --list-profiles    # the configured account ids
+./bin/ccmeter --language it      # en, it or zh, overriding the configuration
 ./bin/ccmeter --auth-only        # which credential source was found, no network call
 ./bin/ccmeter --help
 ```
@@ -232,12 +235,16 @@ the 2.5-second tail.
 
 ## Configuration
 
-Every key is optional except `apiKey`. The same keys apply to the executable and
-to the scripts.
+Every key is optional except `apiKey` in a single-account configuration. The same
+keys apply to the executable, the tray scripts and the terminal meter.
 
 | Key | Default | Description |
 |---|---|---|
-| `apiKey` | `""` | Provider-API key |
+| `apiKey` | `""` | Provider-API key of the single account |
+| `apiKeyEnv` | `COMMANDCODE_API_KEY` | environment variable the single account reads its key from |
+| `profiles` | `[]` | several accounts to monitor, see [Accounts](#accounts) |
+| `activeProfile` | first account | account the tray icon follows |
+| `language` | `en` | interface language: `en`, `it`, `zh` or `auto` |
 | `endpoints.baseUrl` | `https://api.commandcode.ai` | canonical host |
 | `endpoints.*Path` | `/alpha/...` | per-endpoint overrides |
 | `refreshSeconds` | `120` | background polling interval (minimum 15) |
@@ -253,6 +260,55 @@ to the scripts.
 > **Note:** `/alpha/*` is not publicly documented and may change without notice.
 > That is why every path can be overridden from `config.json` under `endpoints`:
 > if Command Code changes something, you fix the JSON without touching the code.
+
+### Accounts
+
+Monitoring several Command Code accounts means listing them under `profiles`.
+Each entry needs an `id` (lower-case letters, digits and hyphens, unique) and a
+key, either inline or named through an environment variable:
+
+```json
+{
+  "profiles": [
+    { "id": "personal", "name": "Personal", "apiKey": "user_..." },
+    { "id": "work", "name": "Work", "apiKeyEnv": "COMMANDCODE_API_KEY_WORK" }
+  ],
+  "activeProfile": "personal"
+}
+```
+
+- **The tray icon follows the active account** — `activeProfile` if it names one,
+  otherwise the first entry. The **Account** submenu switches it, and the choice
+  is remembered in `.cache`, never written back into `config.json`.
+- **The bubble shows every account**: the active one in full, then a row per
+  other account, and the panel grows to fit.
+- **`ccmeter` prints one block per account**, or a single line per account with
+  `--compact`; `--profile work` narrows it to one and `--list-profiles` prints
+  the ids.
+- **A named account uses only its own key.** An ambient `COMMANDCODE_API_KEY`
+  does not stand in for it, because silently monitoring the wrong account is
+  worse than an error that names it. Only a configuration *without* `profiles`
+  keeps the ambient-first lookup below.
+- One account failing never hides the others: each carries its own state.
+
+A configuration without `profiles` behaves exactly as it always did: one account,
+`apiKey` plus the lookup order below.
+
+### Languages
+
+The interface ships in **English, Italian and Chinese**; the tables are
+`lang/en.json`, `lang/it.json` and `lang/zh.json`, and every surface reads the
+same ones — the executable compiles them in at build time, the tray and the
+terminal meter load them at runtime.
+
+```json
+{ "language": "it" }
+```
+
+`language` accepts `en`, `it`, `zh`, or `auto` to follow the operating system
+locale. `ccmeter --language zh` overrides it for one run. Dates, numbers and the
+token suffixes follow the language (`8,45` and `Mld` in Italian, `8.45` and `B` in
+English), and Chinese falls back to a CJK-capable font.
 
 ### Credentials
 
@@ -294,7 +350,7 @@ file: the repository carries no asset nobody can regenerate.
 
 ```powershell
 npm test              # Node + Pester suites (tray and terminal meter)
-npm run test:node     # logic, credentials and CLI rendering (93 tests)
+npm run test:node     # logic, credentials, accounts, languages, CLI (120 tests)
 npm run test:pester   # drawing, thresholds, closing and icon (32 tests)
 npm run build:exe     # builds the executable and runs its self-test (13 checks)
 ```
@@ -350,9 +406,10 @@ at the first request and stay at zero until then.
 CommandCodeMonitor.exe     the executable: everything is in here
 config.example.json        configuration template
 bin/ccmeter                terminal meter for Linux and macOS
+lang/                      interface tables: en.json, it.json, zh.json
 csharp/                    C# sources of the executable
-src/                       shared limits logic (limits.mjs), CLI rendering
-                           (render.mjs) and the PowerShell tray (tray.ps1)
+src/                       shared limits logic (limits.mjs), languages (i18n.mjs),
+                           CLI rendering (render.mjs) and the PowerShell tray
 scripts/                   build, icon, autostart, self-test, fixture server
 test/                      Node + Pester suites and the live harness
 screenshots/               images used by this README

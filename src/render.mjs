@@ -2,12 +2,13 @@
  * Terminal presentation for the cross-platform CLI (`bin/ccmeter`).
  *
  * Pure string building, so it can be unit-tested without a terminal: the entry
- * point decides colours and the refresh loop, this module decides what the
- * lines look like. The thresholds and the placement of every value match the
- * Windows tray, which is why they come from the same config keys.
+ * point decides colours, languages and the refresh loop, this module decides
+ * what the lines look like. Every label comes from `src/i18n.mjs`, so the
+ * terminal meter and the Windows tray speak the same words.
  */
 
 import { STATUS, buildDisplay, formatAmount, formatClock, redact } from "./limits.mjs";
+import { t } from "./i18n.mjs";
 
 const CODES = { ok: 32, warn: 33, critical: 31, dim: 2, bold: 1 };
 const ANSI = /\u001b\[[0-9;]*m/g;
@@ -30,89 +31,142 @@ export function bar(percent, { width = 20, ascii = false } = {}) {
   return full.repeat(filled) + empty.repeat(width - filled);
 }
 
+/** Characters a terminal draws two columns wide (CJK, fullwidth forms). */
+const WIDE = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua000-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/;
+
+/** Visible column width of a string, so a CJK label lines up with a Latin one. */
+export function displayWidth(text) {
+  let width = 0;
+  for (const char of String(text ?? "").replace(ANSI, "")) width += WIDE.test(char) ? 2 : 1;
+  return width;
+}
+
 /** Pad to a column width, measuring the visible text and ignoring colour. */
 export function pad(text, width) {
   const value = text === undefined || text === null ? "" : String(text);
-  const visible = value.replace(ANSI, "").length;
-  return value + " ".repeat(Math.max(0, width - visible));
+  return value + " ".repeat(Math.max(0, width - displayWidth(value)));
 }
 
-/** One line for a status bar: `CC 5h 16% · 7d 55% · 30d 27% · 577.1 M · 3120`. */
-export function compactLine(result, display) {
+/**
+ * One line for a status bar: `CC 5h 16% · 7d 55% · 30d 27% · 577.1 M · 3120`.
+ * With several accounts the account name leads the line.
+ */
+export function compactLine(result, display, { name = "" } = {}) {
   // A failed refresh collapses to its own state, so a status bar never shows a
   // row of blanks that looks like real data.
-  if (result.status) return `CC ${String(result.status).replace(/_/g, " ")}`;
+  if (result.status) return `${name ? `${name}  ` : ""}CC ${String(result.status).replace(/_/g, " ")}`;
   const percent = (key) => (result[key] ? display[`${key}Percent`] : "-");
-  const parts = [`CC 5h ${percent("fiveHour")}`, `7d ${percent("weekly")}`, `30d ${percent("monthly")}`];
+  const parts = [
+    `CC ${t("tooltip.fiveHour")} ${percent("fiveHour")}`,
+    `${t("tooltip.weekly")} ${percent("weekly")}`,
+    `${t("tooltip.monthly")} ${percent("monthly")}`,
+  ];
   // Guard the value, not just the pool: a caller that hands over a partial
   // display must not get "undefined" printed into a status bar.
   for (const value of [display.tokensValue, display.runsValue]) if (value) parts.push(value);
-  return parts.join(" \u00b7 ");
+  return `${name ? `${name}  ` : ""}${parts.join(" \u00b7 ")}`;
 }
 
-const WINDOWS = [
-  ["fiveHour", "5 hours"],
-  ["weekly", "Weekly"],
-  ["monthly", "Monthly"],
-];
+const WINDOW_KEYS = ["fiveHour", "weekly", "monthly"];
 
 /**
  * Render one payload as text.
  * @param result - a `fetchLimits` payload, with or without a failure status.
  * @param config - the resolved configuration, for the colour thresholds.
- * @param options - `color` (ANSI output) and `ascii` (bar characters).
+ * @param options - `color`, `ascii`, `compact`, and `name` for a named account.
  */
 export function renderPanel(result, config = {}, options = {}) {
-  const { color = false, ascii = false } = options;
-  const paint = (text, name) => (color && CODES[name] ? `\u001b[${CODES[name]}m${text}\u001b[0m` : String(text));
+  const { color = false, ascii = false, name = "" } = options;
+  const paint = (text, tone) => (color && CODES[tone] ? `\u001b[${CODES[tone]}m${text}\u001b[0m` : String(text));
   const display = buildDisplay(result);
 
-  if (options.compact) return compactLine(result, display);
+  if (options.compact) return compactLine(result, display, { name });
 
   const plan = result.plan?.id ? ` \u00b7 ${result.plan.id}` : "";
-  const lines = [paint("Command Code", "bold") + paint(plan, "dim")];
+  const lines = [paint(t("panel.title"), "bold") + paint(plan, "dim")];
 
   const error = typeof result.status === "string" && result.status !== "";
   if (error) {
     lines.push("");
-    lines.push(redact(result.message ?? "Data unavailable."));
-    // The credential hint belongs to the one failure it can actually fix.
+    lines.push(redact(result.message ?? t("panel.noData")));
+    // The credential hint belongs to the one failure it can actually fix, and
+    // names the account when the configuration has several.
     if (result.status === STATUS.AUTH_NEEDED) {
       lines.push("");
-      lines.push(paint("Set COMMANDCODE_API_KEY, or put apiKey in config.json.", "dim"));
+      lines.push(paint(name ? t("cli.credentialHintProfile", { id: name }) : t("cli.credentialHint"), "dim"));
     }
     return lines.join("\n");
   }
 
-  const labelWidth = Math.max(...WINDOWS.map(([, label]) => label.length));
-  const usageWidth = Math.max(...WINDOWS.map(([key]) => String(display[`${key}Usage`] ?? "-").length));
+  // One column for every label, the widest row deciding it, so a long
+  // translation or a CJK label cannot push a value out of its column.
+  const labels = WINDOW_KEYS.map((key) => t(`panel.${key}`));
+  const rowLabels = [
+    ...labels,
+    t("panel.tokens"),
+    t("panel.runs"),
+    t("panel.credits"),
+    t("panel.updatedLabel"),
+  ];
+  const labelWidth = Math.max(...rowLabels.map((label) => displayWidth(label)));
+  const usageWidth = Math.max(...WINDOW_KEYS.map((key) => String(display[`${key}Usage`] ?? "-").length));
 
   lines.push("");
-  for (const [key, label] of WINDOWS) {
+  WINDOW_KEYS.forEach((key, index) => {
     const window = result[key];
+    const label = labels[index];
     // A pool Command Code does not report for this account keeps its row, so the
     // panel never changes shape between accounts.
     if (!window) {
-      lines.push(`  ${pad(label, labelWidth)}  ${paint("not open yet", "dim")}`);
-      continue;
+      lines.push(`  ${pad(label, labelWidth)}  ${paint(t("panel.notOpen"), "dim")}`);
+      return;
     }
     const tone = phase(window.percent, config?.thresholds);
     const percentText = paint(pad(display[`${key}Percent`] ?? "-", 4), tone);
     const barText = paint(bar(window.percent, { ascii }), tone);
     const usage = pad(display[`${key}Usage`] ?? "-", usageWidth);
     const reset = window.resetAt
-      ? paint(`reset in ${display[`${key}ResetIn`]} (${display[`${key}ResetAt`]})`, "dim")
+      ? paint(t("panel.resetShort", { in: display[`${key}ResetIn`], at: display[`${key}ResetAt`] }), "dim")
       : "";
     lines.push(`  ${pad(label, labelWidth)}  ${percentText} ${barText}  ${usage}  ${reset}`.trimEnd());
-  }
+  });
 
   lines.push("");
-  if (result.tokens) lines.push(`  ${pad("Tokens", labelWidth)}  ${display.tokensValue}`);
-  if (result.runs) lines.push(`  ${pad("Runs", labelWidth)}  ${display.runsValue}`);
+  if (result.tokens) lines.push(`  ${pad(t("panel.tokens"), labelWidth)}  ${display.tokensValue}`);
+  if (result.runs) lines.push(`  ${pad(t("panel.runs"), labelWidth)}  ${display.runsValue}`);
   if (result.credits) {
-    const credits = `${formatAmount(result.credits.used)} of ${formatAmount(result.credits.limit)} USD  (${formatAmount(result.credits.remaining)} left)`;
-    lines.push(`  ${pad("Credits", labelWidth)}  ${credits}`);
+    const credits = t("panel.creditsValue", {
+      used: formatAmount(result.credits.used),
+      limit: formatAmount(result.credits.limit),
+      left: formatAmount(result.credits.remaining),
+    });
+    lines.push(`  ${pad(t("panel.credits"), labelWidth)}  ${credits}`);
   }
-  lines.push(`  ${pad("Updated", labelWidth)}  ${paint(formatClock(result.fetchedAt), "dim")}`);
+  lines.push(`  ${pad(t("panel.updatedLabel"), labelWidth)}  ${paint(formatClock(result.fetchedAt), "dim")}`);
   return lines.join("\n");
+}
+
+/**
+ * Render every configured account.
+ *
+ * One account renders as it always did, with no header: the single-account
+ * output stays byte-identical to earlier releases. Two or more get a header and
+ * a blank line between them, so a copy-paste into a report stays readable.
+ */
+export function renderAccounts(entries, config = {}, options = {}) {
+  if (options.compact) {
+    return entries.map(({ profile, result }) => renderPanel(result, config, { ...options, name: entries.length > 1 ? profile.name : "" })).join("\n");
+  }
+  if (entries.length === 1) {
+    // The implicit single account keeps its historical output, hint included.
+    const only = entries[0].profile;
+    return renderPanel(entries[0].result, config, { ...options, name: only.id === "default" ? "" : only.id });
+  }
+  return entries
+    .map(({ profile, result }, index) => {
+      const header = options.color ? `\u001b[1m${t("cli.profileHeader", { name: profile.name })}\u001b[0m` : t("cli.profileHeader", { name: profile.name });
+      const block = renderPanel(result, config, { ...options, name: profile.id });
+      return index === 0 ? `${header}\n${block}` : `${header}\n${block}`;
+    })
+    .join("\n\n");
 }
