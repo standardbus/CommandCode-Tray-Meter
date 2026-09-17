@@ -5,7 +5,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](#)
 [![Tests](https://img.shields.io/badge/tests-120%20Node%20%2B%2032%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
-[![Executable size](https://img.shields.io/badge/executable-78%20KB-4c8eda)](#)
+[![Executable size](https://img.shields.io/badge/executable-124%20KB-4c8eda)](#)
 
 [![Release](https://img.shields.io/github/v/release/standardbus/CommandCode-Tray-Meter?label=release&color=4c8eda&logo=github)](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)
 [![Stars](https://img.shields.io/github/stars/standardbus/CommandCode-Tray-Meter?label=stars&color=e3b341)](https://github.com/standardbus/CommandCode-Tray-Meter/stargazers)
@@ -19,7 +19,7 @@ on screen. On Linux and macOS the same readings are available as a terminal
 meter, `ccmeter`.
 
 > **[Download the executable](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)**
-> — a single 78 KB file, no runtime to install — or the
+> — a single 124 KB file, no runtime to install — or the
 > [terminal meter](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)
 > for Linux and macOS.
 
@@ -28,7 +28,7 @@ the same numbers:
 
 | | **Executable** | **Scripts** | **Terminal meter** |
 |---|---|---|---|
-| Files | `CommandCodeMonitor.exe` (78 KB) | `src/tray.ps1` + `src/session.mjs` | `bin/ccmeter` |
+| Files | `CommandCodeMonitor.exe` (124 KB) | `src/tray.ps1` + `src/session.mjs` | `bin/ccmeter` |
 | Platform | Windows 10/11 | Windows 10/11 | Linux and macOS |
 | Requires | nothing else | Node.js 18+ and PowerShell | Node.js 18+ |
 | Logic | C# (`csharp/`) | Node (`src/`) | Node (`src/`) |
