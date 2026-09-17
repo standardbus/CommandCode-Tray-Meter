@@ -20,8 +20,11 @@ namespace CommandCodeMonitor
     /// Finds the Command Code bearer token.
     ///
     /// Precedence and file handling follow the Node implementation exactly: an
-    /// environment variable, then config.json, then the credential files. The
-    /// files are only ever read - a lapsed token is reported, never refreshed,
+    /// environment variable, then config.json, then the credential files. A named
+    /// account is resolved from its own fields alone (`COMMANDCODE_API_KEY` never
+    /// answers for it), which is why the configuration carries a strict flag.
+    ///
+    /// The files are only ever read - a lapsed token is reported, never refreshed,
     /// because refreshing belongs to the CLI that owns the file and writing it
     /// here would race every other tool on the machine.
     /// </summary>
@@ -32,9 +35,34 @@ namespace CommandCodeMonitor
 
         public static Credential Resolve(MonitorConfig config)
         {
-            var fromEnv = Environment.GetEnvironmentVariable("COMMANDCODE_API_KEY");
+            var envName = (config.ApiKeyEnv ?? "").Trim();
+
+            // A named account resolves only from its own fields. An ambient
+            // COMMANDCODE_API_KEY must not stand in for an account that configured
+            // its own key: silently monitoring the wrong account is worse than
+            // saying so.
+            if (config.StrictCredential)
+            {
+                if (envName.Length > 0)
+                {
+                    var named = Environment.GetEnvironmentVariable(envName);
+                    if (!string.IsNullOrEmpty(named) && named.Trim().Length > 0)
+                        return new Credential { Token = named.Trim(), Source = envName };
+                }
+                if (!string.IsNullOrEmpty(config.ApiKey) && config.ApiKey.Trim().Length > 0)
+                    return new Credential { Token = config.ApiKey.Trim(), Source = "config.json" };
+                return new Credential
+                {
+                    Error = "auth_needed",
+                    Source = "none",
+                    Message = Lang.T("error.profileNoCredentials", config.ProfileName),
+                };
+            }
+
+            var ambientName = envName.Length > 0 ? envName : "COMMANDCODE_API_KEY";
+            var fromEnv = Environment.GetEnvironmentVariable(ambientName);
             if (!string.IsNullOrEmpty(fromEnv) && fromEnv.Trim().Length > 0)
-                return new Credential { Token = fromEnv.Trim(), Source = "COMMANDCODE_API_KEY" };
+                return new Credential { Token = fromEnv.Trim(), Source = ambientName };
 
             if (!string.IsNullOrEmpty(config.ApiKey) && config.ApiKey.Trim().Length > 0)
                 return new Credential { Token = config.ApiKey.Trim(), Source = "config.json" };
@@ -56,16 +84,12 @@ namespace CommandCodeMonitor
             }
 
             var credential = new Credential { Error = "auth_needed" };
-            if (sawExpired)
-            {
-                credential.Message =
-                    "Command Code session expired. Open the CLI and sign in again, or paste a Provider-API key into config.json.";
-            }
-            else
-            {
-                credential.Message =
-                    "No Command Code credentials. Paste a Provider-API key into config.json (commandcode.ai/settings/keys) or set COMMANDCODE_API_KEY.";
-            }
+            // A lapsed session and a machine with no key at all need different
+            // instructions, and only the second one benefits from a hint about the
+            // environment variable.
+            credential.Message = sawExpired
+                ? Lang.T("error.expired")
+                : Lang.T("error.noCredentials");
             return credential;
         }
 

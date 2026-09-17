@@ -29,6 +29,23 @@ if (-not $ConfigPath) { $ConfigPath = Join-Path $ProjectRoot "config.json" }
 $CacheDir = Join-Path $ProjectRoot ".cache"
 $SessionFile = Join-Path $CacheDir "session.json"
 $LogFile = Join-Path $CacheDir "tray-error.log"
+# The account chosen from the tray menu is runtime state: the monitor never
+# rewrites config.json, so the choice lives in the cache instead.
+$ActiveProfileFile = Join-Path $CacheDir "active-profile.json"
+
+# The translator is loaded before anything else can write a message, so even an
+# early failure is reported in the configured language. Absent means English.
+. (Join-Path $PSScriptRoot "lang.ps1")
+try {
+  $earlyConfig = $null
+  if (Test-Path $ConfigPath) {
+    $earlyJson = [System.IO.File]::ReadAllText($ConfigPath)
+    if ($earlyJson -and $earlyJson.Trim()) { $earlyConfig = $earlyJson | ConvertFrom-Json }
+  }
+  Select-CcLanguage $(if ($earlyConfig) { [string]$earlyConfig.language } else { "" }) | Out-Null
+} catch {
+  Select-CcLanguage "" | Out-Null
+}
 
 $script:RefreshIntervalMs = 120000
 $script:PhaseWarn = 60
@@ -37,6 +54,10 @@ $script:Monochrome = $false
 $script:ShowTooltip = $true
 # Which window the ring tracks; weekly stays on the corner dot either way.
 $script:IconMetric = 'fiveHour'
+# The account the icon follows: from the payload when the session knows several,
+# otherwise the account recorded in the cache or named by config.json.
+$script:ConfiguredProfile = ""
+$script:CachedProfile = ""
 
 # Palette: readable on both light and dark taskbars.
 $script:ColorOk = [System.Drawing.Color]::FromArgb(46, 160, 67)
@@ -50,13 +71,30 @@ $script:ColorPanel = [System.Drawing.Color]::FromArgb(32, 33, 36)
 $script:ColorPanelEdge = [System.Drawing.Color]::FromArgb(70, 70, 76)
 
 $PanelWidth = 320
-$PanelHeight = 306
 $PanelCloseSize = 16
+
+# The bubble is 306px for the single account it has always shown. With two or
+# more accounts an "Accounts" section is added below the figures and the panel
+# grows with it: the window, the popup's minimum size and the mouse-hook
+# geometry all read $PanelHeight, so one number keeps them in step.
+$PanelBaseHeight = 306
+$PanelAccountsTitleHeight = 26
+$PanelAccountRowHeight = 18
+
+function Get-PanelHeight {
+  param([int]$AccountCount = 0)
+  if ($AccountCount -lt 2) { return $PanelBaseHeight }
+  return $PanelBaseHeight + $PanelAccountsTitleHeight + ($AccountCount * $PanelAccountRowHeight)
+}
+
+$PanelHeight = $PanelBaseHeight
 
 function Write-TrayError {
   param([string]$Message)
   try {
     if (-not (Test-Path $CacheDir)) { New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null }
+    # The log keeps the invariant timestamp format on purpose: a translated
+    # locale would change the field order and break any grep over past runs.
     $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
     Add-Content -Path $LogFile -Value $line -Encoding UTF8
   } catch { }
@@ -71,7 +109,7 @@ function Read-TextWithRetry {
       return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8)
     } catch {
       if ($attempt -eq $Attempts) {
-        Write-TrayError "lettura $Path fallita: $($_.Exception.Message)"
+        Write-TrayError (Get-CcText "log.readingFailed" @{ path = $Path; message = $_.Exception.Message })
         return $null
       }
       Start-Sleep -Milliseconds $DelayMs
@@ -93,7 +131,7 @@ public static extern bool DestroyIcon(System.IntPtr hIcon);
 '@
   [void][CcMonitor.Native]::SetProcessDPIAware()
 } catch {
-  Write-TrayError "SetProcessDPIAware unavailable: $($_.Exception.Message)"
+  Write-TrayError (Get-CcText "log.dpiUnavailable" @{ message = $_.Exception.Message })
 }
 
 # A ToolStripDropDown never takes mouse capture, so it cannot notice a click that
@@ -116,7 +154,7 @@ public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam,
 public static extern IntPtr GetModuleHandle(string lpModuleName);
 '@
 } catch {
-  Write-TrayError "Mouse hook unavailable: $($_.Exception.Message)"
+  Write-TrayError (Get-CcText "log.mouseHookUnavailable" @{ message = $_.Exception.Message })
 }
 
 # Escape must be caught through a message filter: the dropdown never takes focus
@@ -146,7 +184,7 @@ public class PopupKeyFilter : IMessageFilter
 }
 '@
 } catch {
-  Write-TrayError "Keyboard filter unavailable: $($_.Exception.Message)"
+  Write-TrayError (Get-CcText "log.keyboardFilterUnavailable" @{ message = $_.Exception.Message })
 }
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -174,6 +212,7 @@ function Import-MonitorConfig {
       if ($config.thresholds.warn -ne $null) { $script:PhaseWarn = [double]$config.thresholds.warn }
       if ($config.thresholds.critical -ne $null) { $script:PhaseCritical = [double]$config.thresholds.critical }
     }
+    if ($config.activeProfile) { $script:ConfiguredProfile = ([string]$config.activeProfile).Trim().ToLowerInvariant() }
     if ($config.ui) {
       $script:Monochrome = [bool]$config.ui.monochrome
       if ($config.ui.showTooltip -ne $null) { $script:ShowTooltip = [bool]$config.ui.showTooltip }
@@ -183,7 +222,53 @@ function Import-MonitorConfig {
       }
     }
   } catch {
-    Write-TrayError "config.json is not readable: $($_.Exception.Message)"
+    Write-TrayError (Get-CcText "log.configUnreadable" @{ message = $_.Exception.Message })
+  }
+}
+
+# The account the tray follows. The session already puts the active account's
+# fields at the top level of every payload, so the id only has to name it for
+# the menu checkmark. Precedence matches the session's: cache, config, first.
+function Get-ActiveProfileId {
+  $payloadId = [string](Get-Value $script:Data "activeProfile")
+  if ($payloadId) { return $payloadId.ToLowerInvariant() }
+  if ($script:CachedProfile) { return $script:CachedProfile }
+  if ($script:ConfiguredProfile) { return $script:ConfiguredProfile }
+  $accounts = Get-AccountList
+  if ($accounts.Count -gt 0) { return ([string](Get-Value $accounts[0] "id")).ToLowerInvariant() }
+  return ""
+}
+
+function Get-AccountList {
+  $accounts = Get-Value $script:Data "accounts"
+  if ($null -eq $accounts) { return @() }
+  # A single-element JSON array arrives as one object, not as a list.
+  return @($accounts)
+}
+
+# The choice made in the menu is read back on startup, so the account the user
+# picked is still the one on screen after the tray restarts.
+function Get-CachedProfileId {
+  try {
+    if (-not (Test-Path $ActiveProfileFile)) { return "" }
+    $raw = Read-TextWithRetry -Path $ActiveProfileFile -Attempts 3 -DelayMs 20
+    if (-not $raw) { return "" }
+    return ([string](($raw | ConvertFrom-Json).id)).Trim().ToLowerInvariant()
+  } catch {
+    return ""
+  }
+}
+
+function Set-CachedProfileId {
+  param([string]$Id)
+  try {
+    if (-not (Test-Path $CacheDir)) { New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null }
+    # Written even when no session is running: the choice must survive a restart
+    # and a network that is down right now.
+    $entry = [pscustomobject]@{ id = $Id; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+    Set-Content -LiteralPath $ActiveProfileFile -Value ($entry | ConvertTo-Json -Compress) -Encoding UTF8
+  } catch {
+    Write-TrayError "Set-CachedProfileId: $($_.Exception.Message)"
   }
 }
 
@@ -204,7 +289,7 @@ function Get-SessionInfo {
 function Start-LimitsSession {
   $node = Get-NodePath
   if (-not $node) {
-    Write-TrayError "node not found in PATH: using the native path."
+    Write-TrayError (Get-CcText "log.nodeMissing")
     return $false
   }
   if (-not (Test-Path $CacheDir)) { New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null }
@@ -223,24 +308,34 @@ function Start-LimitsSession {
       -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru `
       -RedirectStandardOutput $outLog -RedirectStandardError $errLog
     $script:SessionProcess = $process
-    Write-TrayError "sessione avviata (pid $($process.Id))"
+    Write-TrayError (Get-CcText "log.sessionStarted" @{ pid = $process.Id })
     return $true
   } catch {
-    Write-TrayError "session start unavailable: $($_.Exception.Message)"
+    Write-TrayError (Get-CcText "log.sessionUnavailable" @{ message = $_.Exception.Message })
     return $false
   }
 }
 
 function Invoke-SessionRequest {
-  param([string]$Path, [string]$Method = "GET")
+  param([string]$Path, [string]$Method = "GET", [string]$Body = "")
   $info = Get-SessionInfo
   if (-not $info) { return $null }
   try {
     $headers = @{ "x-session-token" = $info.sessionToken }
-    return Invoke-RestMethod -Uri ("http://127.0.0.1:{0}{1}" -f [int]$info.port, $Path) `
-      -Method $Method -Headers $headers -TimeoutSec 10 -UseBasicParsing
+    $arguments = @{
+      Uri = "http://127.0.0.1:{0}{1}" -f [int]$info.port, $Path
+      Method = $Method
+      Headers = $headers
+      TimeoutSec = 10
+      UseBasicParsing = $true
+    }
+    if ($Body) {
+      $arguments["Body"] = $Body
+      $arguments["ContentType"] = "application/json"
+    }
+    return Invoke-RestMethod @arguments
   } catch {
-    Write-TrayError "richiesta sessione $Path fallita: $($_.Exception.Message)"
+    Write-TrayError (Get-CcText "log.sessionRequestFailed" @{ path = $Path; message = $_.Exception.Message })
     return $null
   }
 }
@@ -275,7 +370,7 @@ function Invoke-NativeFetch {
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr)
       $launched = $true
     } catch {
-      Write-TrayError "Start-Process unavailable, falling back to the call operator: $($_.Exception.Message)"
+      Write-TrayError (Get-CcText "log.startProcessUnavailable" @{ message = $_.Exception.Message })
     }
     if (-not $launched) {
       # No output redirection on this path: reusing those same files as the
@@ -294,12 +389,12 @@ function Invoke-NativeFetch {
     $text = $null
     if (Test-Path -LiteralPath $outFile) { $text = Read-TextWithRetry -Path $outFile }
     if (-not $text -or -not $text.Trim()) {
-      Write-TrayError "fetch produced no result (exit $LASTEXITCODE)"
+      Write-TrayError (Get-CcText "log.fetchEmpty" @{ code = $LASTEXITCODE })
       return $null
     }
     return ($text.Trim() | ConvertFrom-Json)
   } catch {
-    Write-TrayError "fetch nativo fallito: $($_.Exception.Message)"
+    Write-TrayError (Get-CcText "log.nativeFetchFailed" @{ message = $_.Exception.Message })
     return $null
   }
 }
@@ -391,14 +486,6 @@ function Get-PhaseColor {
   if ($value -ge $script:PhaseCritical) { return $script:ColorCritical }
   if ($value -ge $script:PhaseWarn) { return $script:ColorWarn }
   return $script:ColorOk
-}
-
-function Format-BarLabel {
-  param($Window, $Label, $ResetIn, $ResetAt)
-  if ($null -eq $Window) { return "$Label  window not open yet" }
-  $percent = [Math]::Round([double]$Window.percent)
-  if ($ResetIn) { return "$Label  $percent%  -  reset in $ResetIn ($ResetAt)" }
-  return "$Label  $percent%"
 }
 
 # The close affordance sits at the right of the header row.
@@ -584,7 +671,7 @@ function Draw-LimitRow {
   $Graphics.DrawString($percentText, $titleFont, $script:BrushText, [float]($valueRight - $percentSize.Width), [float]$Y)
 
   if ($null -eq $Window) {
-    $Graphics.DrawString("window not open yet", $smallFont, $script:BrushDim, [float]$left, [float]($Y + 18))
+    $Graphics.DrawString((Get-CcText "panel.notOpen"), $smallFont, $script:BrushDim, [float]$left, [float]($Y + 18))
     return
   }
 
@@ -594,8 +681,8 @@ function Draw-LimitRow {
 
   # Usage comes pre-formatted from the shared module: the raw API values carry
   # nine decimals and would render as noise.
-  $detail = "used $Usage"
-  if ($ResetIn) { $detail += "   -   reset in $ResetIn ($ResetAt)" }
+  $detail = Get-CcText "panel.used" @{ usage = $Usage }
+  if ($ResetIn) { $detail += Get-CcText "panel.resetIn" @{ in = $ResetIn; at = $ResetAt } }
   $Graphics.DrawString($detail, $smallFont, $script:BrushDim, [float]$left, [float]($barY + 11))
 }
 
@@ -612,11 +699,48 @@ function Draw-TextRow {
   $Graphics.DrawString($Value, $script:FontLabel, $script:BrushText, [float]($PanelWidth - 16 - $size.Width), [float]$Y)
 }
 
+# One account of the Accounts section: the name on the left, the three windows on
+# the right. The layout comes from `panel.accountRow`, so a translation decides
+# the order of the figures and the separators between them.
+function Draw-AccountRow {
+  param(
+    [System.Drawing.Graphics]$Graphics,
+    [int]$Y,
+    $Account,
+    [bool]$Active
+  )
+  $name = [string](Get-Value $Account "name")
+  if (-not $name) { $name = [string](Get-Value $Account "id") }
+  $display = Get-Value $Account "display"
+  $percentOf = {
+    param($Key)
+    $value = [string](Get-Value $display "$($Key)Percent")
+    if ($value) { return $value }
+    return "--"
+  }
+  $text = Get-CcText "panel.accountRow" @{
+    name = $name
+    five = (& $percentOf "fiveHour")
+    weekly = (& $percentOf "weekly")
+    monthly = (& $percentOf "monthly")
+  }
+  $font = if ($Active) { $script:FontLabel } else { $script:FontSmall }
+  $brush = if ($Active) { $script:BrushText } else { $script:BrushDim }
+  # The active account gets a marker in the left margin, so the row that matches
+  # the figures above is identifiable without reading the names.
+  if ($Active) {
+    $marker = New-SolidBrush $script:ColorOk
+    $Graphics.FillEllipse($marker, 6, ($Y + 7), 4, 4)
+    $marker.Dispose()
+  }
+  $Graphics.DrawString($text, $font, $brush, [float]16, [float]$Y)
+}
+
 function Draw-CreditsRow {
   param([System.Drawing.Graphics]$Graphics, [int]$Y, $Credits, [string]$Text)
   $left = 16
   if ($null -eq $Credits) { return }
-  if (-not $Text) { $Text = "USD credits available" }
+  if (-not $Text) { $Text = Get-CcText "panel.noCredits" }
   $Graphics.DrawString($Text, $script:FontSmall, $script:BrushDim, [float]$left, [float]$Y)
 }
 
@@ -647,14 +771,14 @@ function Draw-Panel {
   $Graphics.FillEllipse($markerBrush, 16, 18, 10, 10)
   $markerBrush.Dispose()
 
-  $Graphics.DrawString("Command Code", $script:FontTitle, $script:BrushText, [float]30, [float]13)
+  $Graphics.DrawString((Get-CcText "panel.title"), $script:FontTitle, $script:BrushText, [float]30, [float]13)
   # The plan label sits between the title and the close button, and is dropped
   # rather than overlapped when there is no room for it.
   $closeRect = Get-CloseButtonRect
   if ($data -and $data.plan -and $data.plan.id) {
     $planText = [string]$data.plan.id
     $planSize = $Graphics.MeasureString($planText, $script:FontSmall)
-    $titleSize = $Graphics.MeasureString("Command Code", $script:FontTitle)
+    $titleSize = $Graphics.MeasureString((Get-CcText "panel.title"), $script:FontTitle)
     $planX = $closeRect.Left - 10 - $planSize.Width
     if ($planX -gt (30 + $titleSize.Width + 8)) {
       $Graphics.DrawString($planText, $script:FontSmall, $script:BrushDim, [float]$planX, [float]18)
@@ -675,39 +799,58 @@ function Draw-Panel {
   $crossPen.Dispose()
 
   if ($noData) {
-    $Graphics.DrawString("Waiting for the first update...", $script:FontLabel, $script:BrushDim, [float]16, [float]56)
+    $Graphics.DrawString((Get-CcText "panel.waiting"), $script:FontLabel, $script:BrushDim, [float]16, [float]56)
     return
   }
 
   if ($hasError) {
-    $message = if ($data.message) { [string]$data.message } else { "Data unavailable." }
+    $message = if ($data.message) { [string]$data.message } else { Get-CcText "panel.noData" }
     # Direct constructors rather than New-Object: New-Object's argument binding
     # mis-parses an inline expression such as `$PanelWidth - 32` and fails with a
     # confusing "op_Subtraction" error instead of constructing the rectangle.
     $rect = [System.Drawing.RectangleF]::new(16, 54, [float]($PanelWidth - 32), 116)
     $Graphics.DrawString($message, $script:FontLabel, $script:BrushText, $rect)
-    $hint = "Right-click the icon > Open config.json"
+    $hint = Get-CcText "panel.openConfig"
     $Graphics.DrawString($hint, $script:FontSmall, $script:BrushDim, [float]16, [float]176)
     return
   }
 
-  Draw-LimitRow -Graphics $Graphics -Y 50 -Title "5 hours" -Window $data.fiveHour `
+  Draw-LimitRow -Graphics $Graphics -Y 50 -Title (Get-CcText "panel.fiveHour") -Window $data.fiveHour `
     -ResetIn $data.display.fiveHourResetIn -ResetAt $data.display.fiveHourResetAt `
     -Usage $data.display.fiveHourUsage
-  Draw-LimitRow -Graphics $Graphics -Y 106 -Title "Weekly" -Window $data.weekly `
+  Draw-LimitRow -Graphics $Graphics -Y 106 -Title (Get-CcText "panel.weekly") -Window $data.weekly `
     -ResetIn $data.display.weeklyResetIn -ResetAt $data.display.weeklyResetAt `
     -Usage $data.display.weeklyUsage
-  Draw-LimitRow -Graphics $Graphics -Y 162 -Title "Monthly" -Window $data.monthly `
+  Draw-LimitRow -Graphics $Graphics -Y 162 -Title (Get-CcText "panel.monthly") -Window $data.monthly `
     -ResetIn $data.display.monthlyResetIn -ResetAt $data.display.monthlyResetAt `
     -Usage $data.display.monthlyUsage
-  Draw-TextRow -Graphics $Graphics -Y 218 -Label "Tokens used" `
-    -Value $(if ($data.tokens) { $data.display.tokensValue } else { "unavailable" })
-  Draw-TextRow -Graphics $Graphics -Y 242 -Label "Runs" `
-    -Value $(if ($data.runs) { $data.display.runsValue } else { "unavailable" })
+  Draw-TextRow -Graphics $Graphics -Y 218 -Label (Get-CcText "panel.tokens") `
+    -Value $(if ($data.tokens) { $data.display.tokensValue } else { Get-CcText "panel.notUpdated" })
+  Draw-TextRow -Graphics $Graphics -Y 242 -Label (Get-CcText "panel.runs") `
+    -Value $(if ($data.runs) { $data.display.runsValue } else { Get-CcText "panel.notUpdated" })
   Draw-CreditsRow -Graphics $Graphics -Y 266 -Credits $data.credits -Text $data.display.creditsText
 
   # Footer.
   $footerY = $PanelHeight - 18
+
+  # Accounts: the section exists only when there is more than one, so the
+  # single-account bubble keeps the exact layout it has always had.
+  $accounts = Get-AccountList
+  if ($accounts.Count -ge 2) {
+    # One scale for the whole section: the title and the rows are laid out from
+    # the footer upwards, so the growth in $PanelHeight is exactly what they use.
+    $rowScale = 18
+    $firstRowY = $footerY - 6 - ($accounts.Count * $rowScale)
+    $Graphics.DrawString((Get-CcText "panel.accounts"), $script:FontSmall, $script:BrushDim, [float]16, [float]($firstRowY - 20))
+    $activeId = Get-ActiveProfileId
+    for ($index = 0; $index -lt $accounts.Count; $index++) {
+      $account = $accounts[$index]
+      $rowY = $firstRowY + ($index * $rowScale)
+      $rowId = ([string](Get-Value $account "id")).ToLowerInvariant()
+      Draw-AccountRow -Graphics $Graphics -Y $rowY -Account $account -Active ($rowId -eq $activeId)
+    }
+  }
+
   # The footer clock is derived from fetchedAt on every presentation pass rather
   # than carried in the payload, so a poll that updates the session state without
   # going through Submit-Refresh cannot leave a stale time on screen.
@@ -716,17 +859,19 @@ function Draw-Panel {
     $stamp = Get-Value $data "fetchedAt"
     if ($stamp -and [double]$stamp -gt 0) {
       try {
-        $updated = ([DateTimeOffset]::FromUnixTimeMilliseconds([long][double]$stamp)).ToLocalTime().ToString("HH:mm:ss")
+        # The clock is formatted for the active language, so an Italian or
+        # Chinese tray reads dates in its own convention.
+        $updated = Get-CcDateTime ([DateTimeOffset]::FromUnixTimeMilliseconds([long][double]$stamp).ToLocalTime().DateTime)
       } catch {
         $updated = "-"
       }
     }
   }
-  $Graphics.DrawString("Updated at $updated", $script:FontSmall, $script:BrushDim, [float]16, [float]$footerY)
+  $Graphics.DrawString((Get-CcText "panel.updated" @{ time = $updated }), $script:FontSmall, $script:BrushDim, [float]16, [float]$footerY)
 
   $note = ""
-  if ($script:Fetching) { $note = "refreshing..." }
-  elseif ($isStale) { $note = "not updated" }
+  if ($script:Fetching) { $note = Get-CcText "panel.refreshing" }
+  elseif ($isStale) { $note = Get-CcText "panel.notUpdated" }
   if ($note) {
     $noteColor = if ($isStale) { $script:ColorWarn } else { $script:ColorTextDim }
     $noteBrush = New-SolidBrush $noteColor
@@ -746,29 +891,70 @@ function Get-Value {
   return $property.Value
 }
 
+# --- profiles --------------------------------------------------------------
+#
+# The session fetches every configured account in one pass and returns the list
+# of accounts plus the one that is active, with the active account's fields at
+# the top level. Only switching the active account is the tray's job, and the
+# choice is recorded in the cache: config.json is never written.
+
+function Switch-ActiveProfile {
+  param([string]$Id)
+  $wanted = ([string]$Id).Trim().ToLowerInvariant()
+  if (-not $wanted) { return }
+  # Written first, so the choice survives even if no session is listening.
+  [void](Set-CachedProfileId $wanted)
+  $body = @{ id = $wanted } | ConvertTo-Json -Compress
+  # The session answers with the payload of the newly active account, so the
+  # bubble repaints from this response instead of waiting for the next poll.
+  $payload = Invoke-SessionRequest -Path "/profile" -Method "POST" -Body $body
+  if ($payload) { $script:Data = $payload }
+  Update-TrayPresentation
+  if ($script:Popup.Visible) { $script:OwnerDrawItem.Invalidate() }
+}
+
 function Update-TrayPresentation {
   $data = $script:Data
   $ringPercent = $null
   $weeklyPercent = $null
-  $tooltip = "Command Code"
+  $tooltip = Get-CcText "status.starting"
 
   if ($data -and -not (Get-Value $data "status")) {
     # The ring follows the configured window; the weekly dot is independent.
     $ringPercent = Get-Value (Get-Value $data $script:IconMetric) "percent"
     $weeklyPercent = Get-Value (Get-Value $data "weekly") "percent"
     $tooltip = [string](Get-Value $data "tooltip")
-    if ([bool](Get-Value $data "stale")) { $tooltip += "  (data not updated)" }
+    if ([bool](Get-Value $data "stale")) { $tooltip += (Get-CcText "panel.stale") }
+    # With several accounts the tooltip has to say which one it is reporting,
+    # since only the active account is shown. The payload already carries the
+    # finished "Command Code ..." line, so the name is prefixed to it rather
+    # than the line being wrapped a second time.
+    $accounts = Get-AccountList
+    if ($accounts.Count -ge 2) {
+      $activeId = Get-ActiveProfileId
+      foreach ($account in $accounts) {
+        if (([string](Get-Value $account "id")).ToLowerInvariant() -eq $activeId) {
+          $tooltip = "$([string](Get-Value $account 'name')) $tooltip"
+          break
+        }
+      }
+    }
   } elseif ($data) {
     $status = [string](Get-Value $data "status")
-    if ($status -eq "auth_needed") { $tooltip = "Command Code: authentication required" }
-    else { $tooltip = "Command Code: data unavailable" }
-  } else {
-    $tooltip = "Command Code: starting up"
+    if ($status -eq "auth_needed") { $tooltip = Get-CcText "status.authNeeded" }
+    else { $tooltip = Get-CcText "status.unavailable" }
   }
 
+  # The bubble, the popup and the tray icon all follow the active account, so a
+  # change in the account list resizes them here rather than at draw time.
+  $accountCount = (Get-AccountList).Count
+  $wantedHeight = Get-PanelHeight -AccountCount $accountCount
+  if ($wantedHeight -ne $PanelHeight) { Set-PanelHeight -Height $wantedHeight }
+
+  Update-AccountMenu
   # Repaint the icon only when a value actually changed.
   $statusKey = [string](Get-Value $data "status")
-  $signature = "{0}|{1}|{2}|{3}|{4}" -f $ringPercent, $weeklyPercent, $script:IconMetric, $script:Monochrome, $statusKey
+  $signature = "{0}|{1}|{2}|{3}|{4}|{5}" -f $ringPercent, $weeklyPercent, $script:IconMetric, $script:Monochrome, $statusKey, (Get-ActiveProfileId)
   if ($signature -ne $script:IconSignature) {
     $script:IconSignature = $signature
     $newIcon = New-StatusIcon -FivePercent $ringPercent -WeeklyPercent $weeklyPercent
@@ -784,6 +970,16 @@ function Update-TrayPresentation {
   }
 }
 
+# $PanelHeight is read by the window, the popup's minimum size and the mouse-hook
+# geometry, so resizing it can never leave one of them stale. The `$script:`
+# prefix is required here: a bare assignment would only shadow it locally.
+function Set-PanelHeight {
+  param([int]$Height)
+  $script:PanelHeight = $Height
+  if ($script:Popup) { $script:Popup.MinimumSize = [System.Drawing.Size]::new([int]$PanelWidth, [int]$Height) }
+  if ($script:OwnerDrawItem) { $script:OwnerDrawItem.Size = [System.Drawing.Size]::new([int]$PanelWidth, [int]$Height) }
+}
+
 function Submit-Refresh {
   param([switch]$Force)
   if ($script:Fetching) { return }
@@ -796,7 +992,7 @@ function Submit-Refresh {
     } elseif ($null -eq $script:Data) {
       $script:Data = [pscustomobject]@{
         status = "network_error"
-        message = "No active session and native fetch unavailable."
+        message = Get-CcText "log.noSession"
       }
     }
   } catch {
@@ -965,7 +1161,7 @@ function Start-MouseWatch {
     $module = [CcMonitor.MouseHook]::GetModuleHandle($null)
     $script:MouseHookHandle = [CcMonitor.MouseHook]::SetWindowsHookEx(14, $script:MouseHookProc, $module, 0)
     if ($script:MouseHookHandle -eq [IntPtr]::Zero) {
-      Write-TrayError ("SetWindowsHookEx fallito: " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
+      Write-TrayError (Get-CcText "log.hookFailed" @{ message = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error() })
     }
   } catch {
     Write-TrayError "Start-MouseWatch: $($_.Exception.Message)"
@@ -992,6 +1188,7 @@ $script:LastAnchor = $null
 $script:PendingState = $null
 $script:PendingRefresh = $null
 $script:Watchdog = $null
+$script:AccountMenu = $null
 
 # One client for the loopback session: non-blocking SendAsync calls plus a
 # generous timeout, since none of these requests ever wait on the network.
@@ -1001,20 +1198,35 @@ try {
   $script:HttpClient.Timeout = [TimeSpan]::FromSeconds(15)
 } catch {
   $script:HttpClient = $null
-  Write-TrayError "HttpClient unavailable: $($_.Exception.Message)"
+  Write-TrayError (Get-CcText "log.httpClientUnavailable" @{ message = $_.Exception.Message })
 }
 
 Import-MonitorConfig
+# Read once: the file is tiny, and the checkmark, the tooltip and the panel
+# marker must all agree on the same answer.
+$script:CachedProfile = Get-CachedProfileId
 
 if (-not $NoSession) {
   if (-not (Get-SessionInfo)) { [void](Start-LimitsSession) }
 }
 
 # Fonts and brushes are created once: creating them per paint would leak GDI
-# handles for as long as the monitor runs.
-$script:FontTitle = [System.Drawing.Font]::new("Segoe UI", [float]11, [System.Drawing.FontStyle]::Bold)
-$script:FontLabel = [System.Drawing.Font]::new("Segoe UI", [float]9.5)
-$script:FontSmall = [System.Drawing.Font]::new("Segoe UI", [float]8)
+# handles for as long as the monitor runs. A CJK family is requested explicitly
+# for Chinese, since "Segoe UI" has no CJK glyphs and would draw boxes.
+function New-UiFont {
+  param([string]$Family, [float]$Size, [System.Drawing.FontStyle]$Style = [System.Drawing.FontStyle]::Regular)
+  try {
+    return [System.Drawing.Font]::new($Family, $Size, $Style)
+  } catch {
+    return [System.Drawing.Font]::new("Segoe UI", $Size, $Style)
+  }
+}
+
+$fontFamily = Get-CcFontFamily
+if (-not $fontFamily) { $fontFamily = "Segoe UI" }
+$script:FontTitle = New-UiFont -Family $fontFamily -Size ([float]11) -Style ([System.Drawing.FontStyle]::Bold)
+$script:FontLabel = New-UiFont -Family $fontFamily -Size ([float]9.5)
+$script:FontSmall = New-UiFont -Family $fontFamily -Size ([float]8)
 $script:BrushText = New-SolidBrush $script:ColorText
 $script:BrushDim = New-SolidBrush $script:ColorTextDim
 
@@ -1079,7 +1291,7 @@ if ("PopupKeyFilter" -as [type]) {
     }
     [System.Windows.Forms.Application]::AddMessageFilter($script:PopupKeyFilter)
   } catch {
-    Write-TrayError "MessageFilter not added: $($_.Exception.Message)"
+    Write-TrayError (Get-CcText "log.messageFilterFailed" @{ message = $_.Exception.Message })
   }
 }
 
@@ -1106,22 +1318,55 @@ function Add-MenuItem {
   return $item
 }
 
-[void](Add-MenuItem -Text "Show limits" -OnClick { Show-LimitsPopup })
-[void](Add-MenuItem -Text "Refresh now" -OnClick {
+[void](Add-MenuItem -Text (Get-CcText "menu.show") -OnClick { Show-LimitsPopup })
+[void](Add-MenuItem -Text (Get-CcText "menu.refresh") -OnClick {
   Start-LimitsUpdate
   if ($script:Popup.Visible) { $script:OwnerDrawItem.Invalidate() }
 })
-[void](Add-MenuItem -Text ("Apri config.json ({0})" -f (Split-Path -Leaf $ConfigPath)) -OnClick {
+[void](Add-MenuItem -Text (Get-CcText "menu.openConfig" @{ file = (Split-Path -Leaf $ConfigPath) }) -OnClick {
   if (-not (Test-Path $ConfigPath)) {
     $example = Join-Path $ProjectRoot "config.example.json"
     if (Test-Path $example) { Copy-Item $example $ConfigPath -Force }
   }
-  if (Test-Path $ConfigPath) { Start-Process notepad.exe $ConfigPath } else { Write-TrayError "config.json missing" }
+  if (Test-Path $ConfigPath) { Start-Process notepad.exe $ConfigPath } else { Write-TrayError (Get-CcText "log.configUnreadable" @{ message = (Split-Path -Leaf $ConfigPath) }) }
 })
-[void](Add-MenuItem -Text "Command Code settings (Studio)" -OnClick {
+[void](Add-MenuItem -Text (Get-CcText "menu.settings") -OnClick {
   Start-Process "https://commandcode.ai/settings/keys"
 })
-$script:AutostartItem = Add-MenuItem -Text "Start with Windows" -OnClick {
+
+# The Account submenu lists the accounts the session reports and checks the one
+# the tray is following. It stays hidden until there is more than one account,
+# so a single-account installation sees the menu it always saw.
+$script:AccountMenu = New-Object System.Windows.Forms.ToolStripMenuItem
+$script:AccountMenu.Text = Get-CcText "menu.account"
+$script:AccountMenu.Visible = $false
+[void]$script:Menu.Items.Add($script:AccountMenu)
+
+function Update-AccountMenu {
+  $accounts = Get-AccountList
+  $script:AccountMenu.DropDownItems.Clear()
+  if ($accounts.Count -lt 2) {
+    $script:AccountMenu.Visible = $false
+    return
+  }
+  $script:AccountMenu.Visible = $true
+  $activeId = Get-ActiveProfileId
+  foreach ($account in $accounts) {
+    $id = ([string](Get-Value $account "id")).ToLowerInvariant()
+    $name = [string](Get-Value $account "name")
+    if (-not $name) { $name = $id }
+    $entry = New-Object System.Windows.Forms.ToolStripMenuItem
+    $entry.Text = $name
+    $entry.Checked = ($id -eq $activeId)
+    $entry.Tag = $id
+    # A closure per account: the handler must carry its own id, not the last one
+    # the loop happened to assign.
+    $entry.Add_Click({ param($sender, $eventArgs) Switch-ActiveProfile -Id ([string]$sender.Tag) })
+    [void]$script:AccountMenu.DropDownItems.Add($entry)
+  }
+}
+
+$script:AutostartItem = Add-MenuItem -Text (Get-CcText "menu.autostart") -OnClick {
   $installer = Join-Path $ProjectRoot "scripts\install-autostart.ps1"
   $uninstaller = Join-Path $ProjectRoot "scripts\uninstall-autostart.ps1"
   try {
@@ -1129,12 +1374,12 @@ $script:AutostartItem = Add-MenuItem -Text "Start with Windows" -OnClick {
     if (Test-Path $startup) { & $uninstaller | Out-Null } else { & $installer | Out-Null }
     $script:AutostartItem.Checked = Test-Path $startup
   } catch {
-    Write-TrayError "autostart: $($_.Exception.Message)"
+    Write-TrayError (Get-CcText "log.autostartFailed" @{ message = $_.Exception.Message })
   }
 }
 $startupLink = [System.IO.Path]::Combine([Environment]::GetFolderPath("Startup"), "CommandCodeMonitor.lnk")
 $script:AutostartItem.Checked = Test-Path $startupLink
-[void](Add-MenuItem -Text "Esci" -OnClick {
+[void](Add-MenuItem -Text (Get-CcText "menu.exit") -OnClick {
   $script:Running = $false
   # Single exit path for the whole app: leave the message loop in Run().
   [System.Windows.Forms.Application]::ExitThread()
@@ -1142,7 +1387,7 @@ $script:AutostartItem.Checked = Test-Path $startupLink
 
 $script:TrayIcon = New-Object System.Windows.Forms.NotifyIcon
 $script:TrayIcon.Icon = New-StatusIcon -FivePercent $null -WeeklyPercent $null
-$script:TrayIcon.Text = "Command Code: starting up"
+$script:TrayIcon.Text = Get-CcText "status.starting"
 $script:TrayIcon.ContextMenuStrip = $script:Menu
 $script:TrayIcon.Visible = $true
 $script:TrayIcon.Add_MouseClick({
@@ -1188,7 +1433,7 @@ $script:KeepAliveTimer.Add_Tick({
   } catch { }
   # Restart the helper session if it died underneath us.
   if (-not $NoSession -and -not (Get-SessionInfo)) {
-    Write-TrayError "session missing: restarting"
+    Write-TrayError (Get-CcText "log.sessionUnavailable" @{ message = "session missing: restarting" })
     [void](Start-LimitsSession)
   }
 })

@@ -16,6 +16,11 @@ namespace CommandCodeMonitor
     /// still proven here, against response bodies captured from the real API, and
     /// the numbers are compared with the values the Node implementation produced
     /// from the same input.
+    ///
+    /// The labels follow the configured language; the values do not. An assertion
+    /// on a formatted number therefore builds its expectation from the active
+    /// culture's decimal separator and from the table's unit suffixes, so the same
+    /// thirteen checks pass in English, Italian and Chinese.
     /// </summary>
     internal static class SelfTest
     {
@@ -32,82 +37,109 @@ namespace CommandCodeMonitor
                 var configForIcon = MonitorConfig.Load(configPath);
                 using (var renderer = new IconRenderer(configForIcon))
                     WriteIcon(renderer, iconPath);
-                Console.WriteLine("icon written: " + iconPath);
+                Console.WriteLine(Lang.T("selftest.iconWritten", iconPath));
                 return 0;
             }
 
-            Console.WriteLine("CommandCode Monitor - selftest");
-            Console.WriteLine("  executable : " + Application.ExecutablePath);
-            Console.WriteLine("  config     : " + configPath);
+            Console.WriteLine(Lang.T("selftest.title"));
+            Console.WriteLine(Lang.T("selftest.executable", Application.ExecutablePath));
+            Console.WriteLine(Lang.T("selftest.config", configPath));
+            // Which tables this executable carries: a language missing from the
+            // build shows up here instead of as an English interface.
+            Console.WriteLine(Lang.T("selftest.languagesLoaded", string.Join(", ", Lang.LanguageCodes())));
             Console.WriteLine();
 
-            Console.WriteLine("Configuration");
+            Console.WriteLine(Lang.T("selftest.sectionConfig"));
             MonitorConfig config = null;
-            Check("config.json is readable", () =>
+            Check(Lang.T("selftest.configReadable"), () =>
             {
                 config = MonitorConfig.Load(configPath);
                 if (!File.Exists(configPath)) throw new Exception("missing: " + configPath);
-                return "baseUrl " + config.BaseUrl + ", refresh " + config.RefreshSeconds + "s";
+                return "baseUrl " + config.BaseUrl + ", refresh " + config.RefreshSeconds + "s, language " + Lang.Active;
             });
             if (config == null) return Finish();
 
-            Check("credential source found", () =>
+            Check(Lang.T("selftest.credentialFound"), () =>
             {
-                var credential = Credentials.Resolve(config);
-                if (!credential.Ok) throw new Exception(credential.Message);
-                return credential.Source;
+                // Resolved through the same profile list the tray uses, so a named
+                // account that forgot its key is reported here as well; a named
+                // account deliberately ignores the ambient COMMANDCODE_API_KEY.
+                List<Profile> profiles;
+                try
+                {
+                    profiles = Profiles.Resolve(config);
+                }
+                catch (ConfigException error)
+                {
+                    throw new Exception(Lang.T("error.profilesInvalid", error.Message));
+                }
+
+                var sources = new List<string>();
+                foreach (var profile in profiles)
+                {
+                    var credential = Credentials.Resolve(config.ForProfile(profile));
+                    if (!credential.Ok) throw new Exception(profile.Id + ": " + credential.Message);
+                    sources.Add(profiles.Count == 1 ? credential.Source : profile.Id + " -> " + credential.Source);
+                }
+                return string.Join(", ", sources.ToArray());
             });
 
             Console.WriteLine();
-            Console.WriteLine("Formatting");
-            Check("percentage rounded", () =>
+            Console.WriteLine(Lang.T("selftest.sectionFormat"));
+            Check(Lang.T("selftest.percentRounded"), () =>
             {
                 Equal("37%", Format.Percent(36.59));
                 Equal("-", Format.Percent(double.NaN));
                 return Format.Percent(36.59);
             });
-            Check("amounts with two decimals", () =>
+            Check(Lang.T("selftest.amountsTwoDecimals"), () =>
             {
                 Equal("2", Format.Amount(2.000223421));
-                Equal("8.45", Format.Amount(8.452685563));
-                Equal("69.91", Format.Amount(69.907555494));
+                Equal("8" + DecimalSeparator + "45", Format.Amount(8.452685563));
+                Equal("69" + DecimalSeparator + "91", Format.Amount(69.907555494));
                 return Format.Amount(8.452685563);
             });
-            Check("token count abbreviated", () =>
+            Check(Lang.T("selftest.tokenCountAbbreviated"), () =>
             {
-                Equal("564.0 M", Format.TokenCount(563961963));
-                Equal("1.84 B", Format.TokenCount(1843200000));
-                Equal("45.2 K", Format.TokenCount(45231));
+                Equal("564" + DecimalSeparator + "0 " + Lang.T("units.million"), Format.TokenCount(563961963));
+                Equal("1" + DecimalSeparator + "84 " + Lang.T("units.billion"), Format.TokenCount(1843200000));
+                Equal("45" + DecimalSeparator + "2 " + Lang.T("units.thousand"), Format.TokenCount(45231));
                 return Format.TokenCount(563961963);
             });
-            Check("reset interval readable", () =>
+            Check(Lang.T("selftest.resetReadable"), () =>
             {
-                Equal("3h 12m", Format.Delta(TimeSpan.FromMinutes(192)));
-                Equal("2d 4h", Format.Delta(TimeSpan.FromMinutes(2 * 1440 + 4 * 60)));
-                Equal("<1m", Format.Delta(TimeSpan.FromMinutes(-5)));
+                Equal("3" + Lang.T("format.hours") + " 12" + Lang.T("format.minutes"),
+                    Format.Delta(TimeSpan.FromMinutes(192)));
+                Equal("2" + Lang.T("format.days") + " 4" + Lang.T("format.hours"),
+                    Format.Delta(TimeSpan.FromMinutes(2 * 1440 + 4 * 60)));
+                Equal(Lang.T("format.lessThanMinute"), Format.Delta(TimeSpan.FromMinutes(-5)));
                 return Format.Delta(TimeSpan.FromMinutes(192));
             });
 
             Console.WriteLine();
-            Console.WriteLine("Parsing real responses");
-            Check("panel populated from a realistic payload", () =>
+            Console.WriteLine(Lang.T("selftest.sectionParse"));
+            Check(Lang.T("selftest.panelPopulated"), () =>
             {
                 var result = ParseRealistic();
                 if (result.Status != null) throw new Exception("status " + result.Status + ": " + result.Message);
-                // Values cross-checked by running the same payload through the
-                // Node implementation, which yields exactly these strings.
+                // Percentages, run counts and percentages are the same in every
+                // language; the token total and the credit row are not.
                 Equal("20%", result.FiveHourPercent);
                 Equal("26%", result.WeeklyPercent);
                 Equal("13%", result.MonthlyPercent);
-                Equal("564.0 M", result.TokensValue);
                 Equal("3120", result.RunsValue);
-                if (result.CreditsText == null || !result.CreditsText.StartsWith("Credits:"))
-                    throw new Exception("unexpected credits row: " + result.CreditsText);
+                Equal(Format.TokenCount(563961963), result.TokensValue);
+                if (result.CreditsText == null) throw new Exception("no credits row");
+                if (result.CreditsText.IndexOf(Format.Amount(result.Credits.Used), StringComparison.Ordinal) < 0 ||
+                    result.CreditsText.IndexOf(Format.Amount(result.Credits.Limit), StringComparison.Ordinal) < 0)
+                    throw new Exception("credits row does not carry the amounts: " + result.CreditsText);
                 if (result.Tooltip.Length > 63) throw new Exception("tooltip too long: " + result.Tooltip.Length);
-                return "5h " + result.FiveHourPercent + ", 7g " + result.WeeklyPercent +
-                       ", 30g " + result.MonthlyPercent + ", " + result.TokensValue + ", " + result.RunsValue;
+                return Lang.T("tooltip.fiveHour") + " " + result.FiveHourPercent +
+                       ", " + Lang.T("tooltip.weekly") + " " + result.WeeklyPercent +
+                       ", " + Lang.T("tooltip.monthly") + " " + result.MonthlyPercent +
+                       ", " + result.TokensValue + ", " + result.RunsValue;
             });
-            Check("an unopened window does not become 0%", () =>
+            Check(Lang.T("selftest.windowNotZero"), () =>
             {
                 var window = LimitWindow.ParseMilliseconds(Json.Parse("{\"cap\":0,\"used\":0}"));
                 if (window != null) throw new Exception("a zero cap must yield null");
@@ -115,7 +147,7 @@ namespace CommandCodeMonitor
                 Equal(100.0, clamped.Percent);
                 return "zero cap -> absent, usage over the cap -> 100%";
             });
-            Check("401 reported as authentication required", () =>
+            Check(Lang.T("selftest.authReported"), () =>
             {
                 using (var client = new LimitsClient(TestConfig()))
                 {
@@ -126,7 +158,7 @@ namespace CommandCodeMonitor
                     return "status " + result.Status;
                 }
             });
-            Check("a missing network is reported as such", () =>
+            Check(Lang.T("selftest.networkReported"), () =>
             {
                 using (var client = new LimitsClient(TestConfig()))
                 {
@@ -139,8 +171,8 @@ namespace CommandCodeMonitor
             });
 
             Console.WriteLine();
-            Console.WriteLine("Interface");
-            Check("icon drawn at 16x16", () =>
+            Console.WriteLine(Lang.T("selftest.sectionUi"));
+            Check(Lang.T("selftest.iconDrawn"), () =>
             {
                 using (var renderer = new IconRenderer(config))
                 using (var icon = renderer.DrawStatusIcon(40, 24))
@@ -154,27 +186,33 @@ namespace CommandCodeMonitor
                     return visible + " visible pixels (" + bitmap.Width + "x" + bitmap.Height + ")";
                 }
             });
-            Check("bubble drawn", () =>
+            Check(Lang.T("selftest.bubbleDrawn"), () =>
             {
                 using (var renderer = new IconRenderer(config))
-                using (var bitmap = new Bitmap(IconRenderer.PanelWidth, IconRenderer.PanelHeight))
                 {
-                    using (var graphics = Graphics.FromImage(bitmap))
-                        renderer.DrawPanel(graphics, new Rectangle(0, 0, bitmap.Width, bitmap.Height),
-                            ParseRealistic(), false);
-                    if (bitmap.GetPixel(4, 4).ToArgb() == Color.Transparent.ToArgb())
-                        throw new Exception("background not drawn");
-                    if (renderPath != null)
+                    // One account: the Accounts section is absent and the panel keeps
+                    // its historical size, which is what the check pins down.
+                    var model = new PanelModel { Data = ParseRealistic(), Fetching = false };
+                    var height = IconRenderer.HeightFor(model.Accounts.Count);
+                    using (var bitmap = new Bitmap(IconRenderer.PanelWidth, height))
                     {
-                        var directory = Path.GetDirectoryName(Path.GetFullPath(renderPath));
-                        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-                        bitmap.Save(renderPath, ImageFormat.Png);
-                        return IconRenderer.PanelWidth + "x" + IconRenderer.PanelHeight + " px -> " + renderPath;
+                        using (var graphics = Graphics.FromImage(bitmap))
+                            renderer.DrawPanel(graphics, new Rectangle(0, 0, bitmap.Width, bitmap.Height), model);
+                        if (bitmap.GetPixel(4, 4).ToArgb() == Color.Transparent.ToArgb())
+                            throw new Exception("background not drawn");
+                        var size = IconRenderer.PanelWidth + "x" + height + " px, " + renderer.PanelFontFamily;
+                        if (renderPath != null)
+                        {
+                            var directory = Path.GetDirectoryName(Path.GetFullPath(renderPath));
+                            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+                            bitmap.Save(renderPath, ImageFormat.Png);
+                            return size + " -> " + renderPath;
+                        }
+                        return size;
                     }
-                    return IconRenderer.PanelWidth + "x" + IconRenderer.PanelHeight + " px";
                 }
             });
-            Check("close button clickable", () =>
+            Check(Lang.T("selftest.closeClickable"), () =>
             {
                 var rect = IconRenderer.CloseRect();
                 if (rect.Width < 14 || rect.Height < 14) throw new Exception("area too small");
@@ -183,6 +221,12 @@ namespace CommandCodeMonitor
             });
 
             return Finish();
+        }
+
+        /// <summary>The decimal separator the active language writes numbers with.</summary>
+        private static string DecimalSeparator
+        {
+            get { return Lang.Culture.NumberFormat.NumberDecimalSeparator; }
         }
 
         /// <summary>
@@ -243,7 +287,7 @@ namespace CommandCodeMonitor
         private static void Equal(object expected, object actual)
         {
             if (!Equals(expected, actual))
-                throw new Exception("atteso <" + expected + ">, ottenuto <" + actual + ">");
+                throw new Exception(Lang.T("selftest.expected", expected, actual));
         }
 
         /// <summary>
@@ -312,7 +356,11 @@ namespace CommandCodeMonitor
         private static int Finish()
         {
             Console.WriteLine();
-            Console.WriteLine("Result: " + _passed + " ok, " + _failed + " failed");
+            Console.WriteLine(Lang.T("selftest.result", _passed, _failed));
+            // The marker resolves to the same untranslated text in all three tables:
+            // scripts/build-exe.ps1 parses this line, and a localized summary would
+            // make the build fail in any language but English.
+            Console.WriteLine(Lang.T("selftest.marker", _passed, _failed));
             return _failed > 0 ? 1 : 0;
         }
 

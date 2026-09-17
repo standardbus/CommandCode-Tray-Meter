@@ -14,8 +14,10 @@ import {
   activeProfileId,
   fetchAllProfiles,
   normalizeConfig,
+  resolveActiveProfileId,
   resolveCredential,
   resolveProfiles,
+  writeActiveProfileId,
 } from "../src/limits.mjs";
 
 const TOKEN = "test-token-not-a-real-secret";
@@ -145,6 +147,62 @@ describe("activeProfileId", () => {
     assert.equal(activeProfileId(config({}), profiles), "personal");
     assert.equal(activeProfileId(config({ activeProfile: "ghost" }), profiles), "personal", "an unknown name is ignored");
     assert.equal(activeProfileId(config({}), resolveProfiles(config({ profiles: [] }))), "default");
+  });
+});
+
+describe("resolveActiveProfileId", () => {
+  const cfg = config({
+    activeProfile: "personal",
+    profiles: [
+      { id: "personal", apiKey: "a" },
+      { id: "work", apiKey: "b" },
+    ],
+  });
+  const profiles = resolveProfiles(cfg);
+  /** Stand-in for the cache file: the monitor never writes config.json, so the
+   * account picked in the tray menu lives here and wins over the configuration. */
+  const cache = (contents) => ({ readFileSync: () => (contents === null ? "" : JSON.stringify(contents)) });
+
+  test("reads the account recorded in the cache", () => {
+    assert.equal(resolveActiveProfileId(cfg, profiles, { cachePath: "unused", fs: cache({ id: "work" }) }), "work");
+    assert.equal(resolveActiveProfileId(cfg, profiles, { cachePath: "unused", fs: cache({ id: "WORK" }) }), "work");
+  });
+
+  test("falls back to the configuration when there is no cache", () => {
+    const missing = { readFileSync: () => { throw new Error("ENOENT"); } };
+    assert.equal(resolveActiveProfileId(cfg, profiles, { cachePath: "unused", fs: missing }), "personal");
+    assert.equal(resolveActiveProfileId(cfg, profiles, { cachePath: "unused", fs: cache("not json") }), "personal");
+  });
+
+  test("ignores a cached account that no longer exists", () => {
+    // A configuration edited after the choice was made must not leave the tray
+    // following an account that is gone.
+    assert.equal(resolveActiveProfileId(cfg, profiles, { cachePath: "unused", fs: cache({ id: "deleted" }) }), "personal");
+  });
+
+  test("falls back to the first account when nothing names one", () => {
+    const noActive = config({ profiles: [{ id: "a", apiKey: "k" }, { id: "b", apiKey: "k" }] });
+    const missing = { readFileSync: () => { throw new Error("ENOENT"); } };
+    assert.equal(resolveActiveProfileId(noActive, resolveProfiles(noActive), { cachePath: "unused", fs: missing }), "a");
+    assert.equal(resolveActiveProfileId(config({}), resolveProfiles(config({})), { cachePath: "unused", fs: missing }), "default");
+  });
+});
+
+describe("writeActiveProfileId", () => {
+  test("writes the chosen id and its time", () => {
+    const written = [];
+    const fs = { writeFileSync: (path, text) => written.push({ path, text }) };
+    assert.equal(writeActiveProfileId("work", { cachePath: "C:/tmp/active.json", fs }), true);
+    assert.equal(written.length, 1);
+    assert.equal(written[0].path, "C:/tmp/active.json");
+    assert.equal(JSON.parse(written[0].text).id, "work");
+  });
+
+  test("reports a failure instead of throwing", () => {
+    // A cache that cannot be written must not stop the tray from switching
+    // account for the current run.
+    const fs = { writeFileSync: () => { throw new Error("EACCES"); } };
+    assert.equal(writeActiveProfileId("work", { cachePath: "C:/tmp/active.json", fs }), false);
   });
 });
 

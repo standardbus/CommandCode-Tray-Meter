@@ -103,8 +103,7 @@ namespace CommandCodeMonitor
                         Source = credential.Source,
                         HttpStatus = error.Status,
                         FetchedAt = DateTime.UtcNow,
-                        Message = "Command Code rejected the credential (HTTP " + error.Status +
-                                  "). Renew the Provider-API key in config.json.",
+                        Message = Lang.T("error.rejected", error.Status),
                     }.BuildDisplay(DateTime.UtcNow);
                 }
                 return new LimitsResult
@@ -113,7 +112,7 @@ namespace CommandCodeMonitor
                     Source = credential.Source,
                     HttpStatus = error.Status,
                     FetchedAt = DateTime.UtcNow,
-                    Message = "HTTP error " + error.Status + " from api.commandcode.ai.",
+                    Message = Lang.T("error.http", error.Status),
                 }.BuildDisplay(DateTime.UtcNow);
             }
             catch (Exception error)
@@ -123,7 +122,9 @@ namespace CommandCodeMonitor
                     Status = "network_error",
                     Source = credential.Source,
                     FetchedAt = DateTime.UtcNow,
-                    Message = "Network unreachable at api.commandcode.ai. (" + Describe(error) + ")",
+                    // The transport detail is appended rather than dropped: it is
+                    // what turns "network unreachable" into a fixable report.
+                    Message = Lang.T("error.network") + " (" + Describe(error) + ")",
                 }.BuildDisplay(DateTime.UtcNow);
             }
 
@@ -139,7 +140,7 @@ namespace CommandCodeMonitor
                     Status = "http_error",
                     Source = credential.Source,
                     FetchedAt = DateTime.UtcNow,
-                    Message = "Unexpected response from /alpha/billing/credits (unrecognised schema).",
+                    Message = Lang.T("error.schema"),
                 }.BuildDisplay(DateTime.UtcNow);
             }
 

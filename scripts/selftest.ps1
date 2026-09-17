@@ -16,6 +16,20 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $ConfigPath) { $ConfigPath = Join-Path $root "config.json" }
 
+# The language comes from the same configuration and the same table the tray
+# reads, so the self-test reports its steps in the language the user selected.
+. (Join-Path $root "src\lang.ps1")
+try {
+  $language = ""
+  if (Test-Path $ConfigPath) {
+    $raw = Get-Content $ConfigPath -Raw -Encoding UTF8
+    if ($raw -and $raw.Trim()) { $language = [string](($raw | ConvertFrom-Json).language) }
+  }
+  Select-CcLanguage $language | Out-Null
+} catch {
+  Select-CcLanguage "" | Out-Null
+}
+
 $script:Passed = 0
 $script:Failed = 0
 $script:Warnings = 0
@@ -38,51 +52,48 @@ function Write-Warn {
   Write-Output ("  [warn] {0}" -f $Message)
 }
 
-Write-Output "CommandCode Monitor - selftest"
-Write-Output "  progetto : $root"
-Write-Output "  config   : $ConfigPath"
+Write-Output (Get-CcText "selftest.title")
+Write-Output (Get-CcText "selftest.config" @{ path = $ConfigPath })
 Write-Output ""
 
-Write-Output "Ambiente"
-
-Test-Step "PowerShell 5.1 o superiore" {
-  if ($PSVersionTable.PSVersion.Major -lt 5) { throw "serve PowerShell 5.1+" }
-  "versione $($PSVersionTable.PSVersion)"
+Test-Step "PowerShell 5.1 or newer" {
+  if ($PSVersionTable.PSVersion.Major -lt 5) { throw "PowerShell 5.1+ is required" }
+  "version $($PSVersionTable.PSVersion)"
 }
 
 Test-Step "WinForms available" {
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type -AssemblyName System.Drawing
-  "System.Windows.Forms caricato"
+  "System.Windows.Forms loaded"
 }
 
-Test-Step "node.exe raggiungibile" {
+Test-Step "node.exe reachable" {
   $node = Get-Command node -ErrorAction SilentlyContinue
   if (-not $node) { throw "node not found in PATH: the monitor would only run in reduced mode" }
   $version = (& $node.Source --version) 2>&1
   "$($node.Source) ($version)"
 }
 
-Test-Step "modalita STA (richiesta da WinForms)" {
+Test-Step "STA mode (required by WinForms)" {
   if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne "STA") {
-    throw "esegui con: powershell -Sta -File scripts/selftest.ps1"
+    throw "run with: powershell -Sta -File scripts/selftest.ps1"
   }
   "STA"
 }
 
 Write-Output ""
-Write-Output "Configuration and credentials"
+Write-Output (Get-CcText "selftest.sectionConfig")
 
-Test-Step "config.json is readable" {
+Test-Step (Get-CcText "selftest.configReadable") {
   if (-not (Test-Path $ConfigPath)) {
     throw "missing: copy config.example.json to config.json and paste your key"
   }
   $raw = Get-Content $ConfigPath -Raw -Encoding UTF8
   $null = $raw | ConvertFrom-Json
-  "JSON valido"
+  "JSON is valid"
 }
 
-Test-Step "credential source found" {
+Test-Step (Get-CcText "selftest.credentialFound") {
   $node = (Get-Command node).Source
   $fetch = Join-Path $root "src\fetch.mjs"
   $out = Join-Path $env:TEMP "cc-selftest-auth.json"
@@ -92,11 +103,11 @@ Test-Step "credential source found" {
   if (-not $report.hasToken) {
     throw "no credentials: $($report.message)"
   }
-  "sorgente: $($report.source)"
+  "$($report.source)"
 }
 
 Write-Output ""
-Write-Output "Interface"
+Write-Output (Get-CcText "selftest.sectionUi")
 
 $script:Data = [pscustomobject]@{
   plan = [pscustomobject]@{ id = "selftest" }
@@ -105,20 +116,27 @@ $script:Data = [pscustomobject]@{
   credits = [pscustomobject]@{ used = 15.4; limit = 36.4; remaining = 21; percent = 42 }
   display = [pscustomobject]@{
     fiveHourPercent = "40%"; fiveHourResetIn = "3h"; fiveHourResetAt = "12:00"
-    weeklyPercent = "24%"; weeklyResetIn = "2g"; weeklyResetAt = "gio 13:00"
+    weeklyPercent = "24%"; weeklyResetIn = "2d"; weeklyResetAt = "13:00"
   }
   fetchedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-  tooltip = "Command Code 5h 40% - 7g 24%"
+  tooltip = "Command Code 5h 40% - 7d 24%"
 }
 
 . (Join-Path $root "src\tray.ps1") -ConfigPath $ConfigPath -NoSession -SelfTest
 
-Test-Step "icon drawn at 16x16" {
+Test-Step (Get-CcText "selftest.languagesLoaded" @{ codes = "en, it, zh" }) {
+  foreach ($code in @("en", "it", "zh")) {
+    if (-not (Test-CcLanguage $code)) { throw "lang/$code.json did not load" }
+  }
+  "en, it, zh"
+}
+
+Test-Step (Get-CcText "selftest.iconDrawn") {
   $icon = New-StatusIcon -FivePercent 40 -WeeklyPercent 24
   try {
     $bitmap = $icon.ToBitmap()
     try {
-      if ($bitmap.Width -lt 16) { throw "bitmap troppo piccola: $($bitmap.Width)px" }
+      if ($bitmap.Width -lt 16) { throw "bitmap too small: $($bitmap.Width)px" }
       $visible = 0
       for ($y = 0; $y -lt $bitmap.Height; $y++) {
         for ($x = 0; $x -lt $bitmap.Width; $x++) { if ($bitmap.GetPixel($x, $y).A -gt 40) { $visible++ } }
@@ -135,7 +153,7 @@ Test-Step "tooltip within the Windows limit" {
   "$($script:TrayIcon.Text.Length) characters"
 }
 
-Test-Step "bubble drawn without errors" {
+Test-Step (Get-CcText "selftest.bubbleDrawn") {
   $bitmap = [System.Drawing.Bitmap]::new($PanelWidth, $PanelHeight, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
   try {
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
@@ -148,7 +166,7 @@ Test-Step "bubble drawn without errors" {
   } finally { $bitmap.Dispose() }
 }
 
-Test-Step "bubble can be opened and closed" {
+Test-Step (Get-CcText "selftest.closeClickable") {
   $script:Popup.Show(([System.Drawing.Point]::new(200, 200)))
   $opened = $script:Popup.Visible
   $script:Popup.Close()
@@ -157,7 +175,9 @@ Test-Step "bubble can be opened and closed" {
 }
 
 Write-Output ""
-Write-Output ("Result: {0} ok, {1} failed, {2} warnings" -f $script:Passed, $script:Failed, $script:Warnings)
+Write-Output (Get-CcText "selftest.result" @{ ok = $script:Passed; failed = $script:Failed })
+Write-Output (Get-CcText "selftest.marker" @{ ok = $script:Passed; failed = $script:Failed })
+Write-Output ("{0} warnings" -f $script:Warnings)
 
 if ($script:Failed -gt 0) { exit 1 }
 exit 0

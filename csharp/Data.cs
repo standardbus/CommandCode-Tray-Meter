@@ -164,7 +164,7 @@ namespace CommandCodeMonitor
         public string TokensValue = "-";
         public string RunsValue = "-";
         public string CreditsText;
-        public string Tooltip = "Command Code: starting up";
+        public string Tooltip = Lang.T("status.starting");
 
         public string PercentFor(string metric)
         {
@@ -207,8 +207,8 @@ namespace CommandCodeMonitor
 
             if (Credits != null)
             {
-                CreditsText = "Credits: " + Format.Amount(Credits.Used) + " of " + Format.Amount(Credits.Limit) +
-                              " USD  (" + Format.Amount(Credits.Remaining) + " left)";
+                CreditsText = Lang.T("panel.creditsLine",
+                    Format.Amount(Credits.Used), Format.Amount(Credits.Limit), Format.Amount(Credits.Remaining));
             }
             if (Tokens != null) TokensValue = Format.TokenCount(Tokens.Total);
             if (Runs != null) RunsValue = Format.Count(Runs.Total);
@@ -247,19 +247,21 @@ namespace CommandCodeMonitor
             if (!string.IsNullOrEmpty(Status))
             {
                 return Status == "auth_needed"
-                    ? "Command Code: authentication required"
-                    : "Command Code: data unavailable";
+                    ? Lang.T("status.authNeeded")
+                    : Lang.T("status.unavailable");
             }
             var parts = new List<string>();
             if (FiveHour != null)
             {
-                parts.Add("5h " + FiveHourPercent +
-                          (string.IsNullOrEmpty(FiveHourResetIn) ? "" : " (reset " + FiveHourResetIn + ")"));
+                var label = Lang.T("tooltip.fiveHour");
+                parts.Add(string.IsNullOrEmpty(FiveHourResetIn)
+                    ? Lang.T("tooltip.window", label, FiveHourPercent)
+                    : Lang.T("tooltip.windowReset", label, FiveHourPercent, FiveHourResetIn));
             }
-            if (Weekly != null) parts.Add("7g " + WeeklyPercent);
-            if (Monthly != null) parts.Add("30g " + MonthlyPercent);
-            if (parts.Count == 0) return "Command Code: no active limits";
-            return "Command Code " + string.Join(" | ", parts.ToArray());
+            if (Weekly != null) parts.Add(Lang.T("tooltip.window", Lang.T("tooltip.weekly"), WeeklyPercent));
+            if (Monthly != null) parts.Add(Lang.T("tooltip.window", Lang.T("tooltip.monthly"), MonthlyPercent));
+            if (parts.Count == 0) return Lang.T("status.noLimits");
+            return Lang.T("tooltip.full", string.Join(Lang.T("tooltip.separator"), parts.ToArray()));
         }
     }
 }

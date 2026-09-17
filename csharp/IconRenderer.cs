@@ -7,6 +7,31 @@ using System.Drawing.Text;
 
 namespace CommandCodeMonitor
 {
+    /// <summary>One account line of the panel's Accounts section.</summary>
+    internal sealed class AccountRow
+    {
+        public string Name = "";
+        public string Five = "--";
+        public string Weekly = "--";
+        public string Monthly = "--";
+        /// <summary>True for the account the rest of the panel is detailing.</summary>
+        public bool Active;
+    }
+
+    /// <summary>
+    /// Everything the panel draws: the reading the tray follows, whether a fetch is
+    /// in flight, and one row per account.
+    ///
+    /// The rows are only drawn when there are two or more accounts, so a
+    /// single-account panel is byte-for-byte what it has always been.
+    /// </summary>
+    internal sealed class PanelModel
+    {
+        public LimitsResult Data;
+        public bool Fetching;
+        public List<AccountRow> Accounts = new List<AccountRow>();
+    }
+
     /// <summary>
     /// Everything the tray draws: the ring icon and the limits panel.
     ///
@@ -16,10 +41,26 @@ namespace CommandCodeMonitor
     internal sealed class IconRenderer : IDisposable
     {
         public const int PanelWidth = 320;
+
+        /// <summary>
+        /// Height of the panel with a single account. Kept as the historical
+        /// constant, and what <see cref="HeightFor"/> returns for one account, so
+        /// the existing screenshots stay valid.
+        /// </summary>
         public const int PanelHeight = 306;
+
         public const int CloseSize = 16;
 
+        /// <summary>
+        /// The Accounts section is a title plus one row per account, measured from
+        /// the footer upwards. The same numbers as the PowerShell tray, so the two
+        /// bubbles are the same shape.
+        /// </summary>
+        private const int AccountsTitleHeight = 26;
+        private const int AccountRowHeight = 18;
+
         private readonly MonitorConfig _config;
+        private readonly string _fontFamily;
 
         // Palette: readable on both light and dark taskbars.
         private readonly Color _ok = Color.FromArgb(46, 160, 67);
@@ -31,17 +72,29 @@ namespace CommandCodeMonitor
         private readonly Color _textDim = Color.FromArgb(160, 163, 168);
         private readonly Color _panel = Color.FromArgb(32, 33, 36);
 
-        private readonly Font _fontTitle = new Font("Segoe UI", 11f, FontStyle.Bold);
-        private readonly Font _fontLabel = new Font("Segoe UI", 9.5f);
-        private readonly Font _fontSmall = new Font("Segoe UI", 8f);
+        private readonly Font _fontTitle;
+        private readonly Font _fontLabel;
+        private readonly Font _fontSmall;
         private readonly SolidBrush _brushText;
         private readonly SolidBrush _brushDim;
 
         public bool CloseHover;
 
+        /// <summary>
+        /// The family the panel draws with. Reported by the self-test, which is the
+        /// only way to see which face a Chinese interface actually picked.
+        /// </summary>
+        public string PanelFontFamily { get { return _fontFamily; } }
+
         public IconRenderer(MonitorConfig config)
         {
             _config = config;
+            // Resolved once, at construction: the language cannot change while a
+            // program is running, and the fonts must come from one family.
+            _fontFamily = ResolveFontFamily();
+            _fontTitle = new Font(_fontFamily, 11f, FontStyle.Bold);
+            _fontLabel = new Font(_fontFamily, 9.5f);
+            _fontSmall = new Font(_fontFamily, 8f);
             _brushText = new SolidBrush(_text);
             _brushDim = new SolidBrush(_textDim);
         }
@@ -53,6 +106,52 @@ namespace CommandCodeMonitor
             _fontSmall.Dispose();
             _brushText.Dispose();
             _brushDim.Dispose();
+        }
+
+        /// <summary>
+        /// Height of the bubble for a given number of accounts.
+        ///
+        /// The Accounts section is only drawn from the second account on, so one
+        /// account keeps the historical height exactly; each row grows the window
+        /// instead of drawing over the footer.
+        /// </summary>
+        public static int HeightFor(int accountCount)
+        {
+            if (accountCount < 2) return PanelHeight;
+            return PanelHeight + AccountsTitleHeight + accountCount * AccountRowHeight;
+        }
+
+        /// <summary>
+        /// The family every panel font is created from.
+        ///
+        /// Chinese needs a CJK-capable face: "Segoe UI" carries no CJK glyphs and
+        /// would draw a row of boxes, so a Chinese interface picks the first
+        /// installed CJK family and falls back to "Segoe UI" when there is none.
+        /// </summary>
+        private static string ResolveFontFamily()
+        {
+            if (Lang.Active == "zh")
+            {
+                var candidates = new[] { "Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "SimSun" };
+                foreach (var candidate in candidates)
+                    if (IsInstalledFont(candidate)) return candidate;
+            }
+            return "Segoe UI";
+        }
+
+        private static bool IsInstalledFont(string name)
+        {
+            try
+            {
+                foreach (var family in FontFamily.Families)
+                    if (string.Equals(family.Name, name, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            catch
+            {
+                // An enumeration failure must not take the panel down: the font
+                // constructor still falls back to a default face.
+            }
+            return false;
         }
 
         public static Rectangle CloseRect()
@@ -199,8 +298,12 @@ namespace CommandCodeMonitor
 
         // --- panel ----------------------------------------------------------
 
-        public void DrawPanel(Graphics graphics, Rectangle bounds, LimitsResult data, bool fetching)
+        public void DrawPanel(Graphics graphics, Rectangle bounds, PanelModel model)
         {
+            var data = model == null ? null : model.Data;
+            var fetching = model != null && model.Fetching;
+            var accounts = model == null ? null : model.Accounts;
+
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
@@ -215,13 +318,14 @@ namespace CommandCodeMonitor
             using (var marker = new SolidBrush(accent))
                 graphics.FillEllipse(marker, 16, 18, 10, 10);
 
-            graphics.DrawString("Command Code", _fontTitle, _brushText, 30f, 13f);
+            var title = Lang.T("panel.title");
+            graphics.DrawString(title, _fontTitle, _brushText, 30f, 13f);
 
             var close = CloseRect();
             if (data != null && data.Plan != null && !string.IsNullOrEmpty(data.Plan.Id))
             {
                 var planSize = graphics.MeasureString(data.Plan.Id, _fontSmall);
-                var titleSize = graphics.MeasureString("Command Code", _fontTitle);
+                var titleSize = graphics.MeasureString(title, _fontTitle);
                 var planX = close.Left - 10 - planSize.Width;
                 if (planX > 30 + titleSize.Width + 8)
                     graphics.DrawString(data.Plan.Id, _fontSmall, _brushDim, planX, 18f);
@@ -245,41 +349,75 @@ namespace CommandCodeMonitor
 
             if (noData)
             {
-                graphics.DrawString("Waiting for the first update...", _fontLabel, _brushDim, 16f, 56f);
+                graphics.DrawString(Lang.T("panel.waiting"), _fontLabel, _brushDim, 16f, 56f);
                 return;
             }
 
             if (hasError)
             {
-                var message = string.IsNullOrEmpty(data.Message) ? "Data unavailable." : data.Message;
+                var message = string.IsNullOrEmpty(data.Message) ? Lang.T("panel.noData") : data.Message;
                 var rect = new RectangleF(16, 54, PanelWidth - 32, 200);
                 graphics.DrawString(message, _fontLabel, _brushText, rect);
-                graphics.DrawString("Right-click the icon > Open config.json", _fontSmall, _brushDim, 16f, 240f);
+                graphics.DrawString(Lang.T("panel.openConfig"), _fontSmall, _brushDim, 16f, 240f);
                 return;
             }
 
-            DrawLimitRow(graphics, 50, "5 hours", data.FiveHour, data.FiveHourResetIn, data.FiveHourResetAt, data.FiveHourUsage);
-            DrawLimitRow(graphics, 106, "Weekly", data.Weekly, data.WeeklyResetIn, data.WeeklyResetAt, data.WeeklyUsage);
-            DrawLimitRow(graphics, 162, "Monthly", data.Monthly, data.MonthlyResetIn, data.MonthlyResetAt, data.MonthlyUsage);
+            DrawLimitRow(graphics, 50, Lang.T("panel.fiveHour"), data.FiveHour,
+                data.FiveHourResetIn, data.FiveHourResetAt, data.FiveHourUsage);
+            DrawLimitRow(graphics, 106, Lang.T("panel.weekly"), data.Weekly,
+                data.WeeklyResetIn, data.WeeklyResetAt, data.WeeklyUsage);
+            DrawLimitRow(graphics, 162, Lang.T("panel.monthly"), data.Monthly,
+                data.MonthlyResetIn, data.MonthlyResetAt, data.MonthlyUsage);
 
-            DrawTextRow(graphics, 218, "Tokens used", data.Tokens != null ? data.TokensValue : "unavailable");
-            DrawTextRow(graphics, 242, "Runs", data.Runs != null ? data.RunsValue : "unavailable");
+            var absent = Lang.T("panel.notUpdated");
+            DrawTextRow(graphics, 218, Lang.T("panel.tokens"), data.Tokens != null ? data.TokensValue : absent);
+            DrawTextRow(graphics, 242, Lang.T("panel.runs"), data.Runs != null ? data.RunsValue : absent);
 
             if (data.Credits != null && !string.IsNullOrEmpty(data.CreditsText))
                 graphics.DrawString(data.CreditsText, _fontSmall, _brushDim, 16f, 266f);
 
-            var footerY = PanelHeight - 18f;
-            graphics.DrawString("Updated at " + Format.Clock(data.FetchedAt), _fontSmall, _brushDim, 16f, footerY);
+            var footerY = bounds.Height - 18f;
+            if (accounts != null && accounts.Count > 1) DrawAccounts(graphics, accounts, footerY);
+
+            graphics.DrawString(Lang.T("panel.updated", Format.Clock(data.FetchedAt)), _fontSmall, _brushDim, 16f, footerY);
 
             string note = null;
             Color noteColor = _textDim;
-            if (fetching) note = "refreshing...";
-            else if (data.Stale) { note = "not updated"; noteColor = _warn; }
+            if (fetching) note = Lang.T("panel.refreshing");
+            else if (data.Stale) { note = Lang.T("panel.notUpdated"); noteColor = _warn; }
             if (note != null)
             {
                 var noteSize = graphics.MeasureString(note, _fontSmall);
                 using (var noteBrush = new SolidBrush(noteColor))
                     graphics.DrawString(note, _fontSmall, noteBrush, PanelWidth - 16 - noteSize.Width, footerY);
+            }
+        }
+
+        /// <summary>
+        /// The Accounts section: one row per account, laid out from the footer
+        /// upwards so the growth in <see cref="HeightFor"/> is exactly what it uses.
+        ///
+        /// The account the figures above describe is drawn in the label font with a
+        /// marker in the left margin, so that row is identifiable without reading
+        /// the names; the others stay quiet.
+        /// </summary>
+        private void DrawAccounts(Graphics graphics, IList<AccountRow> accounts, float footerY)
+        {
+            var firstRowY = footerY - 6 - accounts.Count * AccountRowHeight;
+            graphics.DrawString(Lang.T("panel.accounts"), _fontSmall, _brushDim, 16f, firstRowY - 20);
+            for (var index = 0; index < accounts.Count; index++)
+            {
+                var row = accounts[index];
+                var y = firstRowY + index * AccountRowHeight;
+                var text = Lang.T("panel.accountRow", row.Name, row.Five, row.Weekly, row.Monthly);
+                if (!row.Active)
+                {
+                    graphics.DrawString(text, _fontSmall, _brushDim, 16f, y);
+                    continue;
+                }
+                using (var marker = new SolidBrush(_ok))
+                    graphics.FillEllipse(marker, 6, y + 7, 4, 4);
+                graphics.DrawString(text, _fontLabel, _brushText, 16f, y);
             }
         }
 
@@ -289,24 +427,22 @@ namespace CommandCodeMonitor
             const int left = 16;
             int valueRight = PanelWidth - 16;
 
-            var percentText = window == null ? "--" : Format.Percent(window.Percent) + "";
-            if (window != null) percentText = Format.Percent(window.Percent);
+            var percentText = window == null ? "--" : Format.Percent(window.Percent);
             var percentSize = graphics.MeasureString(percentText, _fontLabel);
             graphics.DrawString(title, _fontLabel, _brushText, left, y);
             graphics.DrawString(percentText, _fontLabel, _brushText, valueRight - percentSize.Width, y);
 
             if (window == null)
             {
-                graphics.DrawString("window not open yet", _fontSmall, _brushDim, left, y + 18);
+                graphics.DrawString(Lang.T("panel.notOpen"), _fontSmall, _brushDim, left, y + 18);
                 return;
             }
 
             var barY = y + 20;
             DrawProgressBar(graphics, left, barY, PanelWidth - 32, 7, window.Percent, PhaseColor(window.Percent));
 
-            var detail = "used " + usage;
-            if (!string.IsNullOrEmpty(resetIn))
-                detail += "   -   reset in " + resetIn + " (" + resetAt + ")";
+            var detail = Lang.T("panel.used", usage);
+            if (!string.IsNullOrEmpty(resetIn)) detail += Lang.T("panel.resetIn", resetIn, resetAt);
             graphics.DrawString(detail, _fontSmall, _brushDim, left, barY + 11);
         }
 

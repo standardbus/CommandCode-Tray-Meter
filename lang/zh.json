@@ -121,6 +121,16 @@
     "noProfiles": "没有配置账户。"
   },
 
+  "exe": {
+    "helpTitle": "CommandCode Monitor",
+    "helpStart": "  CommandCodeMonitor.exe                 启动托盘图标",
+    "helpSelftest": "  CommandCodeMonitor.exe --selftest      运行离线检查",
+    "helpConfig": "  CommandCodeMonitor.exe --config PATH   使用指定的配置文件",
+    "helpLanguage": "  CommandCodeMonitor.exe --language CODE en、it 或 zh；优先于配置文件",
+    "helpRender": "  CommandCodeMonitor.exe --render OUT    将气泡绘制为 PNG",
+    "configPath": "路径: {path}"
+  },
+
   "selftest": {
     "title": "CommandCode Monitor - 自检",
     "executable": "  可执行文件 : {path}",

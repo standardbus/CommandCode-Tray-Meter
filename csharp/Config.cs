@@ -19,6 +19,26 @@ namespace CommandCodeMonitor
         public const string DefaultBaseUrl = "https://api.commandcode.ai";
 
         public string ApiKey = "";
+        public string ApiKeyEnv = "";
+        /// <summary>Interface language: `en`, `it`, `zh`, or `auto` for the system one.</summary>
+        public string Language = "";
+        /// <summary>Display name of the implicit single account, when one is configured.</summary>
+        public string Name = "";
+        /// <summary>Account the tray follows by default; empty means the first one.</summary>
+        public string ActiveProfile = "";
+        /// <summary>
+        /// The `profiles` array as it was read, entry by entry and still raw.
+        ///
+        /// Raw on purpose: an entry that cannot be used has to be *named* in the
+        /// error, and dropping it while parsing would turn a broken account into a
+        /// silently missing one. `Profiles.Resolve` is what validates it.
+        /// </summary>
+        public List<object> Profiles = new List<object>();
+        /// <summary>Set on the per-account copies: resolve only from this account's own fields.</summary>
+        public bool StrictCredential;
+        /// <summary>Id named in `error.profileNoCredentials`.</summary>
+        public string ProfileName = "";
+
         public string BaseUrl = DefaultBaseUrl;
         public string WhoamiPath = "/alpha/whoami";
         public string CreditsPath = "/alpha/billing/credits";
@@ -34,6 +54,26 @@ namespace CommandCodeMonitor
         public List<string> CreditFiles = new List<string>();
         public int RequestTimeoutMs = 8000;
         public string SourcePath = "";
+
+        /// <summary>
+        /// The configuration one named account fetches with: the endpoints, the
+        /// thresholds and the UI settings are shared, and only the credential
+        /// fields belong to the account alone.
+        ///
+        /// `StrictCredential` is the whole point: without it an ambient
+        /// COMMANDCODE_API_KEY would answer for an account that configured its own
+        /// key, and the tray would silently monitor the wrong account.
+        /// </summary>
+        public MonitorConfig ForProfile(Profile profile)
+        {
+            var copy = (MonitorConfig)MemberwiseClone();
+            copy.ApiKey = profile.ApiKey;
+            copy.ApiKeyEnv = profile.ApiKeyEnv;
+            copy.ProfileName = profile.Id;
+            copy.StrictCredential = profile.Strict;
+            copy.Profiles = new List<object>();
+            return copy;
+        }
 
         public static MonitorConfig Load(string path)
         {
@@ -51,7 +91,7 @@ namespace CommandCodeMonitor
             }
             catch (Exception error)
             {
-                throw new ConfigException("config.json is not readable: " + error.Message);
+                throw new ConfigException(Lang.T("error.configUnreadable", error.Message));
             }
 
             object root;
@@ -61,11 +101,21 @@ namespace CommandCodeMonitor
             }
             catch (Exception error)
             {
-                throw new ConfigException("config.json is not valid JSON: " + error.Message);
+                throw new ConfigException(Lang.T("error.configInvalid", error.Message));
             }
 
             var apiKey = Json.Text(Json.Get(root, "apiKey"));
             if (!string.IsNullOrEmpty(apiKey)) config.ApiKey = apiKey.Trim();
+
+            config.ApiKeyEnv = ReadString(root, "apiKeyEnv", "");
+            config.Language = ReadString(root, "language", "");
+            config.Name = ReadString(root, "name", "");
+            config.ActiveProfile = ReadString(root, "activeProfile", "");
+
+            // A `profiles` value that is not an array is not a profile list; the
+            // Node implementation treats it as "no profiles", and so does this one.
+            var profiles = Json.Get(root, "profiles") as List<object>;
+            if (profiles != null) config.Profiles = profiles;
 
             var endpoints = Json.Get(root, "endpoints");
             config.BaseUrl = ReadString(endpoints, "baseUrl", DefaultBaseUrl).TrimEnd('/');

@@ -22,16 +22,14 @@ namespace CommandCodeMonitor
         private const int WsExToolWindow = 0x00000080;
 
         private readonly IconRenderer _renderer;
-        private readonly Func<LimitsResult> _data;
-        private readonly Func<bool> _fetching;
+        private readonly Func<PanelModel> _model;
 
         public event EventHandler CloseRequested;
 
-        public PopupForm(IconRenderer renderer, Func<LimitsResult> data, Func<bool> fetching)
+        public PopupForm(IconRenderer renderer, Func<PanelModel> model)
         {
             _renderer = renderer;
-            _data = data;
-            _fetching = fetching;
+            _model = model;
 
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual;
@@ -39,7 +37,9 @@ namespace CommandCodeMonitor
             TopMost = true;
             DoubleBuffered = true;
             BackColor = Color.FromArgb(32, 33, 36);
-            Size = new Size(IconRenderer.PanelWidth, IconRenderer.PanelHeight);
+            // The Accounts section needs one row per account, so the window is sized
+            // from the model rather than from a constant.
+            Size = new Size(IconRenderer.PanelWidth, IconRenderer.HeightFor(model().Accounts.Count));
             KeyPreview = true;
         }
 
@@ -61,7 +61,7 @@ namespace CommandCodeMonitor
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            _renderer.DrawPanel(e.Graphics, new Rectangle(0, 0, Width, Height), _data(), _fetching());
+            _renderer.DrawPanel(e.Graphics, new Rectangle(0, 0, Width, Height), _model());
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
@@ -106,6 +106,10 @@ namespace CommandCodeMonitor
         /// </summary>
         public void PlaceAtTray()
         {
+            // Sized before it is placed: a taller panel anchored to the tray corner
+            // has to be measured while there is still room for it.
+            SyncSize();
+
             var screen = Screen.PrimaryScreen;
             var working = screen.WorkingArea;
             var bounds = screen.Bounds;
@@ -125,6 +129,16 @@ namespace CommandCodeMonitor
             if (y + Height > working.Bottom) y = working.Bottom - Height;
 
             Location = new Point(x, y);
+        }
+
+        /// <summary>
+        /// Match the window to the number of accounts it has to show. Called before
+        /// every show, so the panel can never be taller or shorter than its model.
+        /// </summary>
+        public void SyncSize()
+        {
+            var height = IconRenderer.HeightFor(_model().Accounts.Count);
+            if (Height != height) Size = new Size(IconRenderer.PanelWidth, height);
         }
 
         /// <summary>Redraw without stealing focus and without a flicker.</summary>

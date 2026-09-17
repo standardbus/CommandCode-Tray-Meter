@@ -14,6 +14,10 @@ namespace CommandCodeMonitor
     /// <summary>
     /// The tray application: owns the icon, the bubble, the polling loop and the
     /// dismissal rules.
+    ///
+    /// Every configured account is fetched, in parallel, and the icon follows the
+    /// active one. With a single account - every configuration that predates
+    /// profiles - the behaviour is exactly what it always was.
     /// </summary>
     internal sealed class MainForm : ApplicationContext
     {
@@ -27,7 +31,6 @@ namespace CommandCodeMonitor
         private const string RunValueName = "CommandCodeMonitor";
 
         private readonly MonitorConfig _config;
-        private readonly LimitsClient _client;
         private readonly IconRenderer _renderer;
         private readonly NotifyIcon _tray;
         private readonly PopupForm _popup;
@@ -36,14 +39,21 @@ namespace CommandCodeMonitor
         private readonly System.Windows.Forms.Timer _refresh;
         private readonly System.Windows.Forms.Timer _watchdog;
 
-        private LimitsResult _data;
+        /// <summary>Every configured account, in configuration order.</summary>
+        private readonly List<MonitorAccount> _accounts = new List<MonitorAccount>();
+        /// <summary>The menu entry per account id, so the check mark can follow the choice.</summary>
+        private readonly Dictionary<string, ToolStripMenuItem> _accountItems =
+            new Dictionary<string, ToolStripMenuItem>(StringComparer.Ordinal);
+        private readonly ProfileState _state;
+
+        /// <summary>The account the icon, the tooltip and the panel follow.</summary>
+        private MonitorAccount _active;
+
         private long _revision;
-        private bool _fetching;
         private bool _closing;
         private string _iconSignature = "";
         private IntPtr _mouseHook = IntPtr.Zero;
         private NativeMethods.HookProc _mouseHookProc;
-        private CancellationTokenSource _pending;
         private bool _demo;
 
         /// <summary>
@@ -54,14 +64,13 @@ namespace CommandCodeMonitor
         public void EnableDemo(int showAfterMs, int quitAfterMs)
         {
             _demo = true;
-            Diag("demo: starting, bubble in " + showAfterMs + "ms, exit in " + quitAfterMs + "ms");
+            Diag(Lang.T("demo.starting", showAfterMs, quitAfterMs));
             var show = new System.Windows.Forms.Timer { Interval = showAfterMs };
             show.Tick += (sender, args) =>
             {
                 show.Stop();
                 show.Dispose();
                 ShowBubble();
-                Diag("demo: " + DescribeState());
             };
             show.Start();
 
@@ -70,9 +79,11 @@ namespace CommandCodeMonitor
             {
                 quit.Stop();
                 quit.Dispose();
-                Diag("demo: close requested - " + DescribeState());
+                // The state is logged once, at close: the bubble has been on screen
+                // for the whole run by then, which is what this diagnostic proves.
+                Diag(Lang.T("demo.closeRequested", DescribeState()));
                 Quit();
-                Diag("demo: Quit() ritornato");
+                Diag(Lang.T("demo.quitReturned"));
             };
             quit.Start();
         }
@@ -91,39 +102,47 @@ namespace CommandCodeMonitor
         /// <summary>Diagnostics for the demo run: what the bubble believes.</summary>
         public string DescribeState()
         {
-            var status = _data == null ? "(no data)" : (_data.Status ?? "ok");
-            return "visibile=" + _popup.Visible +
+            // Field names, not prose: this line is read by a developer in the diag
+            // log, and only the window labels and the "no data" marker are text.
+            var data = _active == null ? null : _active.Data;
+            var status = data == null ? Lang.T("demo.noData") : (data.Status ?? "ok");
+            return "visible=" + _popup.Visible +
                    " bounds=" + _popup.Bounds +
-                   " stato=" + status +
-                   " 5h=" + (_data == null ? "--" : _data.FiveHourPercent) +
-                   " 30g=" + (_data == null ? "--" : _data.MonthlyPercent);
+                   " profile=" + (_active == null ? "-" : _active.Profile.Id) +
+                   " status=" + status +
+                   " " + Lang.T("tooltip.fiveHour") + "=" + (data == null ? "--" : data.FiveHourPercent) +
+                   " " + Lang.T("tooltip.monthly") + "=" + (data == null ? "--" : data.MonthlyPercent);
         }
 
         public MainForm(MonitorConfig config)
         {
             _config = config;
-            _client = new LimitsClient(config);
             _renderer = new IconRenderer(config);
-            _popup = new PopupForm(_renderer, () => _data, () => _fetching);
+            _state = ProfileState.Open(config.SourcePath);
+            CreateAccounts();
+            _active = PickActiveAccount();
+            _popup = new PopupForm(_renderer, BuildPanel);
             _popup.CloseRequested += (sender, args) => HideBubble();
 
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Show limits", null, (sender, args) => ShowBubble());
-            menu.Items.Add("Refresh now", null, (sender, args) => StartUpdate());
-            menu.Items.Add("Open config.json (" + Path.GetFileName(config.SourcePath) + ")", null,
+            menu.Items.Add(Lang.T("menu.show"), null, (sender, args) => ShowBubble());
+            menu.Items.Add(Lang.T("menu.refresh"), null, (sender, args) => StartUpdate());
+            menu.Items.Add(Lang.T("menu.openConfig", Path.GetFileName(config.SourcePath)), null,
                 (sender, args) => OpenConfig());
-            menu.Items.Add("Command Code settings (Studio)", null,
+            menu.Items.Add(Lang.T("menu.settings"), null,
                 (sender, args) => Process.Start("https://commandcode.ai/settings/keys"));
-            _autostartItem = new ToolStripMenuItem("Start with Windows", null, (sender, args) => ToggleAutostart());
+            // A single account needs no submenu: there is nothing to choose.
+            if (_accounts.Count > 1) menu.Items.Add(BuildAccountMenu());
+            _autostartItem = new ToolStripMenuItem(Lang.T("menu.autostart"), null, (sender, args) => ToggleAutostart());
             _autostartItem.Checked = IsAutostartEnabled();
             menu.Items.Add(_autostartItem);
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Exit", null, (sender, args) => Quit());
+            menu.Items.Add(Lang.T("menu.exit"), null, (sender, args) => Quit());
 
             _tray = new NotifyIcon
             {
                 Icon = _renderer.DrawStatusIcon(null, null),
-                Text = "Command Code: starting up",
+                Text = Lang.T("status.starting"),
                 ContextMenuStrip = menu,
                 Visible = true,
             };
@@ -146,8 +165,8 @@ namespace CommandCodeMonitor
             _watchdog = new System.Windows.Forms.Timer { Interval = 1000 };
             _watchdog.Tick += (sender, args) =>
             {
-                if (_data != null && _data.HasData) { _watchdog.Stop(); return; }
-                if (!_fetching) StartUpdate();
+                if (_active != null && _active.Data != null && _active.Data.HasData) { _watchdog.Stop(); return; }
+                if (!_active.Fetching) StartUpdate();
             };
 
             _tick.Start();
@@ -156,121 +175,230 @@ namespace CommandCodeMonitor
             StartUpdate();
         }
 
+        // --- accounts -------------------------------------------------------
+
+        /// <summary>
+        /// Build every account, and every client, once at startup.
+        ///
+        /// An unusable `profiles` list is neither a crash nor an empty tray: it
+        /// becomes one account carrying the reason, which the panel and the tooltip
+        /// already know how to render.
+        /// </summary>
+        private void CreateAccounts()
+        {
+            List<Profile> profiles;
+            try
+            {
+                profiles = Profiles.Resolve(_config);
+            }
+            catch (ConfigException error)
+            {
+                var broken = new MonitorAccount { Profile = new Profile { Id = "config", Name = "config" } };
+                broken.Data = new LimitsResult
+                {
+                    Status = "http_error",
+                    Message = Lang.T("error.profilesInvalid", error.Message),
+                    FetchedAt = DateTime.UtcNow,
+                }.BuildDisplay(DateTime.UtcNow);
+                _accounts.Add(broken);
+                return;
+            }
+
+            foreach (var profile in profiles)
+            {
+                _accounts.Add(new MonitorAccount
+                {
+                    Profile = profile,
+                    Client = new LimitsClient(_config.ForProfile(profile)),
+                });
+            }
+        }
+
+        /// <summary>
+        /// The account the tray follows: the one picked in the menu last time, else
+        /// `activeProfile` from the configuration, else the first.
+        ///
+        /// The remembered choice outranks the configuration because it is the more
+        /// recent statement of intent, and remembering it is the whole point; an id
+        /// that no longer names an account is ignored rather than trusted, and the
+        /// configuration decides. The same precedence as `resolveActiveProfileId`
+        /// in `src/limits.mjs`.
+        /// </summary>
+        private MonitorAccount PickActiveAccount()
+        {
+            var remembered = FindAccount(_state.ActiveProfile);
+            if (remembered != null) return remembered;
+            var configured = FindAccount((_config.ActiveProfile ?? "").Trim().ToLowerInvariant());
+            return configured ?? _accounts[0];
+        }
+
+        private MonitorAccount FindAccount(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return null;
+            foreach (var account in _accounts)
+                if (string.Equals(account.Profile.Id, id, StringComparison.Ordinal)) return account;
+            return null;
+        }
+
+        private ToolStripMenuItem BuildAccountMenu()
+        {
+            var parent = new ToolStripMenuItem(Lang.T("menu.account"));
+            foreach (var account in _accounts)
+            {
+                var target = account;
+                var item = new ToolStripMenuItem(account.Profile.Name) { Checked = account == _active, CheckOnClick = false };
+                item.Click += (sender, args) => ActivateAccount(target);
+                _accountItems[account.Profile.Id] = item;
+                parent.DropDownItems.Add(item);
+            }
+            return parent;
+        }
+
+        /// <summary>
+        /// Follow another account. The choice is runtime state and is written to
+        /// `.cache`, never to config.json: this program does not rewrite the file
+        /// the user maintains.
+        /// </summary>
+        private void ActivateAccount(MonitorAccount account)
+        {
+            if (account == null || account == _active) return;
+            _active = account;
+            _state.Remember(account.Profile.Id);
+            foreach (var entry in _accountItems)
+                entry.Value.Checked = entry.Key == account.Profile.Id;
+
+            // The icon, the tooltip and the panel all describe the active account,
+            // so the cached signature must not survive the switch.
+            _iconSignature = "";
+            UpdateTray();
+            if (_popup.Visible) _popup.Refresh_NoActivate();
+            StartUpdate();
+        }
+
         // --- polling --------------------------------------------------------
 
         /// <summary>
-        /// Kick a fetch off. Never blocks the UI thread: the fast path is folded
-        /// in when it lands and the slow tail replaces it later.
+        /// Kick a fetch off for every account that is not already fetching. Never
+        /// blocks the UI thread: the fast path is folded in when it lands and the
+        /// slow tail replaces it later.
         /// </summary>
         private void StartUpdate()
         {
-            if (_fetching || _closing) return;
-            _fetching = true;
-            _pending = new CancellationTokenSource();
-            var token = _pending.Token;
-
-            Task.Run(async () =>
+            if (_closing) return;
+            foreach (var account in _accounts)
             {
-                try
-                {
-                    var result = await _client.FetchAsync(partial =>
-                    {
-                        BeginInvokeSafe(() => ApplyResult(partial, true));
-                    }, token).ConfigureAwait(false);
+                if (account.Fetching || account.Client == null) continue;
+                var target = account;
+                target.Fetching = true;
+                target.Pending = new CancellationTokenSource();
+                var token = target.Pending.Token;
 
-                    if (token.IsCancellationRequested) return;
-                    BeginInvokeSafe(() => ApplyResult(result, false));
-                }
-                catch (Exception error)
+                Task.Run(async () =>
                 {
-                    BeginInvokeSafe(() => ApplyFailure(error));
-                }
-            });
+                    try
+                    {
+                        var result = await target.Client.FetchAsync(partial =>
+                        {
+                            BeginInvokeSafe(() => ApplyResult(target, partial, true));
+                        }, token).ConfigureAwait(false);
+
+                        if (token.IsCancellationRequested) return;
+                        BeginInvokeSafe(() => ApplyResult(target, result, false));
+                    }
+                    catch (Exception error)
+                    {
+                        BeginInvokeSafe(() => ApplyFailure(target, error));
+                    }
+                });
+            }
         }
 
         /// <summary>
         /// Publish a reading. A failed fetch must not blank the numbers the user
         /// is looking at, so the previous ones are kept and flagged stale.
         /// </summary>
-        private void ApplyResult(LimitsResult result, bool partial)
+        private void ApplyResult(MonitorAccount account, LimitsResult result, bool partial)
         {
             if (_closing) return;
+            var previous = account.Data;
             _revision += 1;
             result.Revision = _revision;
 
             if (!string.IsNullOrEmpty(result.Status))
             {
-                if (_data != null && string.IsNullOrEmpty(_data.Status))
+                if (previous != null && string.IsNullOrEmpty(previous.Status))
                 {
-                    _data.Stale = true;
-                    _data.StaleReason = result.Message;
+                    previous.Stale = true;
+                    previous.StaleReason = result.Message;
                 }
                 else
                 {
-                    _data = result;
+                    account.Data = result;
                 }
             }
-            else if (partial && _data != null)
+            else if (partial && previous != null)
             {
                 // Keep the slow-tail fields: a partial result means "these windows
                 // are newer", not "forget the rest".
-                result.Credits = _data.Credits;
-                result.CreditsText = _data.CreditsText;
-                result.Tokens = _data.Tokens;
-                result.TokensValue = _data.TokensValue;
-                result.Runs = _data.Runs;
-                result.RunsValue = _data.RunsValue;
-                result.Monthly = _data.Monthly;
-                result.MonthlyPercent = _data.MonthlyPercent;
-                result.MonthlyUsage = _data.MonthlyUsage;
-                result.MonthlyResetIn = _data.MonthlyResetIn;
-                result.MonthlyResetAt = _data.MonthlyResetAt;
-                result.Plan = _data.Plan;
-                result.Tooltip = _data.Tooltip;
-                _data = result;
+                result.Credits = previous.Credits;
+                result.CreditsText = previous.CreditsText;
+                result.Tokens = previous.Tokens;
+                result.TokensValue = previous.TokensValue;
+                result.Runs = previous.Runs;
+                result.RunsValue = previous.RunsValue;
+                result.Monthly = previous.Monthly;
+                result.MonthlyPercent = previous.MonthlyPercent;
+                result.MonthlyUsage = previous.MonthlyUsage;
+                result.MonthlyResetIn = previous.MonthlyResetIn;
+                result.MonthlyResetAt = previous.MonthlyResetAt;
+                result.Plan = previous.Plan;
+                result.Tooltip = previous.Tooltip;
+                account.Data = result;
             }
             else
             {
-                _data = result;
+                account.Data = result;
             }
 
             if (!partial)
             {
-                _fetching = false;
-                DisposePending();
+                account.Fetching = false;
+                DisposePending(account);
             }
 
-            UpdateTray();
+            // Only the active account drives the icon, but every account owns a row
+            // in the open bubble, so any of them landing repaints it.
+            if (account == _active) UpdateTray();
             if (_popup.Visible) _popup.Refresh_NoActivate();
         }
 
-        private void ApplyFailure(Exception error)
+        private void ApplyFailure(MonitorAccount account, Exception error)
         {
-            _fetching = false;
-            DisposePending();
-            if (_data != null)
+            account.Fetching = false;
+            DisposePending(account);
+            if (account.Data != null)
             {
-                _data.Stale = true;
-                _data.StaleReason = error.Message;
+                account.Data.Stale = true;
+                account.Data.StaleReason = error.Message;
             }
             else
             {
-                _data = new LimitsResult
+                account.Data = new LimitsResult
                 {
                     Status = "network_error",
-                    Message = "Unexpected error: " + error.Message,
+                    Message = Lang.T("error.unexpected", error.Message),
                     FetchedAt = DateTime.UtcNow,
                 }.BuildDisplay(DateTime.UtcNow);
             }
-            UpdateTray();
+            if (account == _active) UpdateTray();
             if (_popup.Visible) _popup.Refresh_NoActivate();
         }
 
-        private void DisposePending()
+        private static void DisposePending(MonitorAccount account)
         {
-            if (_pending == null) return;
-            try { _pending.Dispose(); } catch { }
-            _pending = null;
+            if (account.Pending == null) return;
+            try { account.Pending.Dispose(); } catch { }
+            account.Pending = null;
         }
 
         /// <summary>
@@ -302,9 +430,40 @@ namespace CommandCodeMonitor
 
         // --- presentation ---------------------------------------------------
 
+        /// <summary>What the bubble draws: the active reading plus one row per account.</summary>
+        private PanelModel BuildPanel()
+        {
+            var data = _active == null ? null : _active.Data;
+            var model = new PanelModel
+            {
+                Data = data,
+                Fetching = _active != null && _active.Fetching,
+            };
+            if (_accounts.Count > 1)
+            {
+                foreach (var account in _accounts)
+                {
+                    model.Accounts.Add(new AccountRow
+                    {
+                        Name = account.Profile.Name,
+                        Active = account == _active,
+                        Five = PercentOf(account.Data, "fiveHour"),
+                        Weekly = PercentOf(account.Data, "weekly"),
+                        Monthly = PercentOf(account.Data, "monthly"),
+                    });
+                }
+            }
+            return model;
+        }
+
+        private static string PercentOf(LimitsResult data, string metric)
+        {
+            return data == null ? "--" : data.PercentFor(metric);
+        }
+
         private void UpdateTray()
         {
-            var data = _data;
+            var data = _active == null ? null : _active.Data;
             double? ring = null;
             double? weekly = null;
             string tooltip;
@@ -314,22 +473,27 @@ namespace CommandCodeMonitor
                 var window = data.WindowFor(_config.IconMetric);
                 ring = window == null ? (double?)null : window.Percent;
                 weekly = data.Weekly == null ? (double?)null : data.Weekly.Percent;
-                tooltip = data.Tooltip ?? "Command Code";
-                if (data.Stale) tooltip += "  (data not updated)";
+                tooltip = data.Tooltip ?? Lang.T("panel.title");
+                if (data.Stale) tooltip += Lang.T("panel.stale");
+                // Only the active account is reported, so with several configured
+                // the tooltip has to say which one it is.
+                if (_accounts.Count > 1 && _active != null) tooltip = _active.Profile.Name + " " + tooltip;
             }
             else if (data != null)
             {
                 tooltip = data.Status == "auth_needed"
-                    ? "Command Code: authentication required"
-                    : "Command Code: data unavailable";
+                    ? Lang.T("status.authNeeded")
+                    : Lang.T("status.unavailable");
             }
             else
             {
-                tooltip = "Command Code: starting up";
+                tooltip = Lang.T("status.starting");
             }
 
+            // The active account is part of the signature: two accounts can report
+            // the same percentages and still need different pixels.
             var signature = ring + "|" + weekly + "|" + _config.IconMetric + "|" + _config.Monochrome + "|" +
-                            (data == null ? "" : data.Status);
+                            (data == null ? "" : data.Status) + "|" + (_active == null ? "" : _active.Profile.Id);
             if (signature != _iconSignature)
             {
                 _iconSignature = signature;
@@ -493,8 +657,8 @@ namespace CommandCodeMonitor
             }
             catch (Exception error)
             {
-                MessageBox.Show("Cannot change the autostart setting:\n" + error.Message,
-                    "CommandCode Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(Lang.T("log.autostartFailed", error.Message),
+                    Lang.T("log.errorTitle"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -502,17 +666,17 @@ namespace CommandCodeMonitor
         {
             if (_closing) return;
             _closing = true;
-            try { if (_pending != null) _pending.Cancel(); } catch { }
+            foreach (var account in _accounts) account.Cancel();
             StopMouseWatch();
             _tick.Stop();
             _refresh.Stop();
             _watchdog.Stop();
             try { _popup.Hide(); _popup.Dispose(); } catch { }
             try { _tray.Visible = false; _tray.Dispose(); } catch { }
-            try { _client.Dispose(); } catch { }
+            foreach (var account in _accounts) account.Dispose();
             try { _renderer.Dispose(); } catch { }
 
-            if (_demo) Diag("demo: exiting, live threads = " + Process.GetCurrentProcess().Threads.Count);
+            if (_demo) Diag(Lang.T("demo.exiting", Process.GetCurrentProcess().Threads.Count));
 
             // Leave at once rather than only ending the message loop: an
             // HttpClient request still parked on a socket keeps a background

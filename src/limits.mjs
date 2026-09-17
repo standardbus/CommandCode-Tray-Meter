@@ -974,6 +974,10 @@ export function writeActiveProfileId(id, options = {}) {
  * result, and a credential that is missing for one account is reported against
  * that account rather than as a global failure.
  *
+ * `onProfilePartial(id, partial)` receives the windows of one account as soon
+ * as they are known, so a tray can paint an account before the slow USD tail of
+ * every other account has resolved.
+ *
  * @returns [{ profile, result }] in configuration order.
  */
 export async function fetchAllProfiles(config = {}, options = {}) {
@@ -985,7 +989,14 @@ export async function fetchAllProfiles(config = {}, options = {}) {
   }
   const only = Array.isArray(options.only) && options.only.length > 0 ? options.only.map((id) => String(id).toLowerCase()) : null;
   const wanted = only ? profiles.filter((profile) => only.includes(profile.id)) : profiles;
+  const onProfilePartial = typeof options.onProfilePartial === "function" ? options.onProfilePartial : null;
   return Promise.all(
-    wanted.map(async (profile) => ({ profile, result: await fetchLimits(profile.config, options) })),
+    wanted.map(async (profile) => {
+      const { onProfilePartial, onPartial, ...rest } = options;
+      // The per-account callback is what identifies the account in a partial,
+      // so the shared one is never handed a payload it cannot attribute.
+      const perProfile = typeof onProfilePartial === "function" ? (partial) => onProfilePartial(profile.id, partial) : undefined;
+      return { profile, result: await fetchLimits(profile.config, { ...rest, onPartial: perProfile }) };
+    }),
   );
 }

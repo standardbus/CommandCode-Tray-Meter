@@ -22,13 +22,15 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { STATUS, fetchLimits, loadConfig, normalizeConfig, redact } from "./limits.mjs";
+import { STATUS, fetchAllProfiles, loadConfig, normalizeConfig, redact, resolveActiveProfileId, resolveProfiles, writeActiveProfileId } from "./limits.mjs";
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(SRC_DIR, "..");
 const CACHE_DIR = join(PROJECT_ROOT, ".cache");
 const LOCK_PATH = join(CACHE_DIR, "session.lock");
 const SESSION_PATH = join(CACHE_DIR, "session.json");
+/** Menu choice made in the tray, which outlives any single session process. */
+const ACTIVE_PROFILE_PATH = join(CACHE_DIR, "active-profile.json");
 
 const MAX_BACKOFF_MS = 15 * 60 * 1000;
 
@@ -111,17 +113,43 @@ const configPath = options.configPath ? resolve(options.configPath) : join(PROJE
 let config = loadConfig(configPath);
 if (options.interval > 0) config = normalizeConfig({ ...config, refreshSeconds: options.interval });
 
+// The account list is resolved once per process: resolveProfiles() reports an
+// unusable list by throwing, and the tray must still receive a payload it can
+// render, so that failure becomes a single synthetic account carrying the
+// reason.
+function listProfiles() {
+  try {
+    return resolveProfiles(config);
+  } catch (error) {
+    return [{ id: "config", name: "config" }];
+  }
+}
+
+const profiles = listProfiles();
+/** Cache-first, so an account chosen in the tray menu survives a restart. */
+const initialActiveId = resolveActiveProfileId(config, profiles, { cachePath: ACTIVE_PROFILE_PATH }) || profiles[0]?.id || "";
+
+/** What one account's fetch currently holds. */
+function emptyEntry(profile) {
+  return {
+    profile,
+    result: {
+      status: STATUS.NETWORK_ERROR,
+      source: "none",
+      fetchedAt: 0,
+      message: "First update in progress.",
+    },
+    consecutiveFailures: 0,
+  };
+}
+
 /** Shared state, read by every /state request. */
 const state = {
-  result: {
-    status: STATUS.NETWORK_ERROR,
-    source: "none",
-    fetchedAt: 0,
-    message: "First update in progress.",
-  },
+  profiles,
+  entries: new Map(profiles.map((profile) => [profile.id, emptyEntry(profile)])),
+  activeId: initialActiveId,
   fetching: false,
   fetchedAt: 0,
-  consecutiveFailures: 0,
   lastDurationMs: 0,
   partialAt: 0,
 };
@@ -134,13 +162,56 @@ function bumpRevision() {
   revision += 1;
 }
 
+/** The active account, or the first one when the id no longer names an account. */
+function activeEntry() {
+  return state.entries.get(state.activeId) ?? state.entries.values().next().value ?? null;
+}
+
+/** Worst failure count across accounts: it drives the retry backoff. */
+function failureCount() {
+  let worst = 0;
+  for (const entry of state.entries.values()) worst = Math.max(worst, entry.consecutiveFailures);
+  return worst;
+}
+
+/** The one account the bubble and the tray icon follow, without the session
+ * metadata. Absent while the very first fetch is still in flight. */
+function activeResult() {
+  return activeEntry()?.result ?? null;
+}
+
+/**
+ * Every account, in configuration order, with the figures the tray's Accounts
+ * section renders. Only the display block is carried: the tray never formats an
+ * account row from raw API numbers.
+ */
+function accountSummaries() {
+  return state.profiles.map((profile) => {
+    const result = state.entries.get(profile.id)?.result ?? {};
+    return {
+      id: profile.id,
+      name: profile.name,
+      ...(result.status ? { status: result.status } : {}),
+      fiveHour: result.fiveHour ?? null,
+      weekly: result.weekly ?? null,
+      monthly: result.monthly ?? null,
+      display: result.display ?? {},
+    };
+  });
+}
+
 /** Snapshot of everything the tray renders, plus freshness metadata. */
 function snapshot() {
+  const result = activeResult() ?? {};
+  const multiple = state.profiles.length > 1;
   return {
-    ...state.result,
-    age: state.result.fetchedAt ? Date.now() - state.result.fetchedAt : null,
+    // The active account's fields stay at the top level, so every existing tray
+    // code path keeps reading the payload it always read.
+    ...result,
+    ...(multiple ? { activeProfile: state.activeId, accounts: accountSummaries() } : {}),
+    age: result.fetchedAt ? Date.now() - result.fetchedAt : null,
     fetching: state.fetching,
-    consecutiveFailures: state.consecutiveFailures,
+    consecutiveFailures: failureCount(),
     refreshSeconds: config.refreshSeconds,
     lastDurationMs: state.lastDurationMs,
     partialAt: state.partialAt,
@@ -149,59 +220,72 @@ function snapshot() {
   };
 }
 
+/** Publish the windows of one account the moment they are ready. */
+function publishPartial(id, partial) {
+  if (partial.status) return;
+  const entry = state.entries.get(id);
+  if (!entry) return;
+  const previous = entry.result;
+  entry.result = {
+    ...partial,
+    // Carry the slow-tail fields over rather than dropping them: a partial
+    // result means "these windows are newer", not "forget the rest".
+    credits: previous.credits ?? null,
+    creditsPending: partial.creditsPending === true,
+    monthly: previous.monthly ?? null,
+    tokens: previous.tokens ?? null,
+    runs: previous.runs ?? null,
+    plan: previous.plan ?? null,
+    display: {
+      ...partial.display,
+      ...(previous.display?.creditsText ? { creditsText: previous.display.creditsText } : {}),
+      ...(previous.display?.usageText ? { usageText: previous.display.usageText } : {}),
+    },
+  };
+  state.fetchedAt = partial.fetchedAt;
+  state.partialAt = Date.now();
+  bumpRevision();
+}
+
 async function refresh(reason) {
-  if (state.fetching) return state.result;
+  if (state.fetching) return activeResult();
   state.fetching = true;
   const started = Date.now();
-  // The windows arrive long before the optional USD line, so publish them the
-  // moment they are ready instead of holding the whole answer back. The previous
-  // USD line is carried over in the meantime: a partial result means "these
-  // numbers are newer", not "drop the line that is still valid".
-  const onPartial = (partial) => {
-    if (partial.status) return;
-    const previous = state.result;
-    state.result = {
-      ...partial,
-      // Carry the slow-tail fields over rather than dropping them: a partial
-      // result means "these windows are newer", not "forget the rest".
-      credits: previous.credits ?? null,
-      creditsPending: partial.creditsPending === true,
-      monthly: previous.monthly ?? null,
-      tokens: previous.tokens ?? null,
-      runs: previous.runs ?? null,
-      plan: previous.plan ?? null,
-      display: {
-        ...partial.display,
-        ...(previous.display?.creditsText ? { creditsText: previous.display.creditsText } : {}),
-        ...(previous.display?.usageText ? { usageText: previous.display.usageText } : {}),
-      },
-    };
-    state.fetchedAt = partial.fetchedAt;
-    state.partialAt = Date.now();
-    bumpRevision();
-  };
   try {
-    const result = await fetchLimits(config, { onPartial });
-    if (result.status) {
-      state.consecutiveFailures += 1;
-      // Keep the last good numbers on screen: a transient network failure must
-      // not blank out the limits the user is looking at.
-      const previous = state.result;
-      if (!previous.status && previous.fetchedAt > 0) {
-        state.result = { ...previous, stale: true, staleReason: result.message, lastErrorAt: Date.now() };
-      } else {
-        state.result = result;
-      }
-    } else {
-      state.consecutiveFailures = 0;
-      state.result = result;
-      state.fetchedAt = result.fetchedAt;
+    // Every account is fetched in parallel; one failing account never hides the
+    // others, and a partial delivery refreshes only its own account.
+    const duringFetch = state.activeId;
+    const results = await fetchAllProfiles(config, {
+      profiles: state.profiles,
+      onPartial: (partial) => publishPartial(duringFetch, partial),
+      onProfilePartial: (id, partial) => publishPartial(id, partial),
+    });
+    for (const { profile, result } of results) {
+      const entry = state.entries.get(profile.id);
+      if (entry) entry.result = result;
     }
-    return result;
+    for (const entry of state.entries.values()) {
+      const result = entry.result;
+      if (result.status) {
+        entry.consecutiveFailures += 1;
+        // Keep the last good numbers on screen: a transient network failure must
+        // not blank out the limits the user is looking at.
+        if (!result.stale && result.fetchedAt > 0) {
+          entry.result = { ...result, stale: true, staleReason: result.message, lastErrorAt: Date.now() };
+        }
+      } else {
+        entry.consecutiveFailures = 0;
+        state.fetchedAt = result.fetchedAt;
+      }
+    }
+    return activeResult();
   } catch (error) {
-    state.consecutiveFailures += 1;
+    for (const entry of state.entries.values()) entry.consecutiveFailures += 1;
     const message = redact(`Unexpected error: ${error?.message ?? error}`);
-    state.result = { ...state.result, stale: true, staleReason: message, lastErrorAt: Date.now() };
+    const entry = activeEntry();
+    if (entry) {
+      entry.result = { ...entry.result, stale: true, staleReason: message, lastErrorAt: Date.now() };
+    }
     return { status: STATUS.NETWORK_ERROR, message };
   } finally {
     state.fetching = false;
@@ -233,7 +317,7 @@ let timer = null;
 let shuttingDown = false;
 
 function snapshotForOnce() {
-  return { ...state.result, consecutiveFailures: state.consecutiveFailures };
+  return { ...snapshot(), consecutiveFailures: failureCount() };
 }
 
 function scheduleNext() {
@@ -241,9 +325,10 @@ function scheduleNext() {
   const base = Math.max(15, Number(config.refreshSeconds) || 120) * 1000;
   // Back off on repeated failures so a broken token or an outage cannot turn
   // into a retry storm; a manual refresh always bypasses this.
-  const backoff = state.consecutiveFailures === 0
+  const failures = failureCount();
+  const backoff = failures === 0
     ? base
-    : Math.min(MAX_BACKOFF_MS, base * 2 ** Math.min(state.consecutiveFailures, 5));
+    : Math.min(MAX_BACKOFF_MS, base * 2 ** Math.min(failures, 5));
   // Jitter keeps multiple machines from synchronising their polls.
   const jitter = backoff * (0.9 + Math.random() * 0.2);
   timer = setTimeout(async () => {
@@ -254,7 +339,7 @@ function scheduleNext() {
 }
 
 const sessionToken = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-const ALLOWED_ENDPOINTS = new Set(["/state", "/refresh", "/health"]);
+const ALLOWED_ENDPOINTS = new Set(["/state", "/refresh", "/health", "/profile"]);
 
 function send(response, statusCode, payload) {
   const body = JSON.stringify(payload);
@@ -266,7 +351,45 @@ function send(response, statusCode, payload) {
   response.end(body);
 }
 
-const server = createServer((request, response) => {
+/** Read a small request body; anything oversized is refused rather than buffered. */
+function readBody(request, limit = 4096) {
+  return new Promise((resolve) => {
+    let text = "";
+    request.on("data", (chunk) => {
+      text += chunk;
+      if (text.length > limit) request.destroy();
+    });
+    request.on("end", () => resolve(text));
+    request.on("error", () => resolve(""));
+  });
+}
+
+/** Accept a menu choice, persist it and refresh, without blocking the answer. */
+function selectProfile(id) {
+  const wanted = String(id ?? "").trim().toLowerCase();
+  const known = state.profiles.some((profile) => profile.id === wanted);
+  if (!known) return null;
+  if (wanted !== state.activeId) {
+    state.activeId = wanted;
+    // Recorded before the fetch: the choice must survive a restart even if the
+    // network is down right now.
+    writeActiveProfileId(wanted, { cachePath: ACTIVE_PROFILE_PATH });
+    bumpRevision();
+  }
+  kickRefresh("profile");
+  return wanted;
+}
+
+/** Start a fetch in the background; the caller answers from the cache at once. */
+function kickRefresh(reason) {
+  if (state.fetching) return false;
+  refresh(reason)
+    .then(() => scheduleNext())
+    .catch((error) => log({ event: "error", message: redact(error?.message ?? String(error)) }));
+  return true;
+}
+
+const server = createServer(async (request, response) => {
   let pathname;
   try {
     pathname = new URL(request.url, "http://127.0.0.1").pathname;
@@ -293,15 +416,35 @@ const server = createServer((request, response) => {
     send(response, 200, snapshot());
     return;
   }
+  if (pathname === "/profile") {
+    if (request.method !== "POST") {
+      send(response, 405, { error: "method_not_allowed" });
+      return;
+    }
+    let wanted = "";
+    try {
+      const body = await readBody(request);
+      wanted = body ? String(JSON.parse(body)?.id ?? "") : "";
+    } catch {
+      send(response, 400, { error: "bad_request" });
+      return;
+    }
+    const selected = selectProfile(wanted);
+    if (!selected) {
+      send(response, 404, { error: "unknown_profile", id: wanted });
+      return;
+    }
+    // The tray repaints from this answer, whose top-level fields already belong
+    // to the newly active account.
+    send(response, 200, { ...snapshot(), selected });
+    return;
+  }
 
   // /refresh: kick the work off and answer at once. The caller already has a
   // cached value to draw; the fresh numbers are picked up on the next /state
   // read, and the windows land there long before the USD tail.
-  const alreadyRunning = state.fetching;
-  if (!alreadyRunning) {
-    refresh("request").then(() => scheduleNext());
-  }
-  send(response, 202, { ...snapshot(), started: !alreadyRunning });
+  const started = kickRefresh("request");
+  send(response, 202, { ...snapshot(), started });
 });
 
 function shutdown(code) {

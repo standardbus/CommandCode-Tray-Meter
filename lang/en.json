@@ -121,6 +121,16 @@
     "noProfiles": "No accounts configured."
   },
 
+  "exe": {
+    "helpTitle": "CommandCode Monitor",
+    "helpStart": "  CommandCodeMonitor.exe                 starts the tray icon",
+    "helpSelftest": "  CommandCodeMonitor.exe --selftest      runs the offline checks",
+    "helpConfig": "  CommandCodeMonitor.exe --config PATH   uses a configuration file",
+    "helpLanguage": "  CommandCodeMonitor.exe --language CODE en, it or zh; overrides the configuration",
+    "helpRender": "  CommandCodeMonitor.exe --render OUT    draws the bubble into a PNG",
+    "configPath": "Path: {path}"
+  },
+
   "selftest": {
     "title": "CommandCode Monitor - selftest",
     "executable": "  executable : {path}",

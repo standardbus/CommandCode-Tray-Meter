@@ -190,6 +190,7 @@ different ways.
 | **Tokens used** | cycle total (`564.0 M`) |
 | **Runs** | number of executions in the cycle (`3120`) |
 | **Credits** row | spent against available, in USD, with what is left |
+| **Accounts** section | one row per other account, shown only when `profiles` lists more than one |
 
 Colours follow configurable thresholds: **green** below 60%, **amber** from 60%,
 **red** from 85%.

@@ -21,13 +21,17 @@ namespace CommandCodeMonitor
 
             var configPath = ResolveConfigPath(args);
 
+            // The language comes from the configuration but has to be known before
+            // anything is printed, so the file is read once here for its language
+            // and once for real below. `--language` wins, which is what lets one run
+            // be checked in another language without editing config.json.
+            var requested = ValueOf(args, "--language");
+            Lang.SetLanguage(!string.IsNullOrEmpty(requested) ? requested : ConfiguredLanguage(configPath));
+            if (Lang.FallbackNotice.Length > 0) Console.Error.WriteLine(Lang.FallbackNotice);
+
             if (HasFlag(args, "--help"))
             {
-                Console.WriteLine("CommandCode Monitor");
-                Console.WriteLine("  CommandCodeMonitor.exe                 starts the tray icon");
-                Console.WriteLine("  CommandCodeMonitor.exe --selftest      runs the offline checks");
-                Console.WriteLine("  CommandCodeMonitor.exe --config PATH   uses a configuration file");
-                Console.WriteLine("  CommandCodeMonitor.exe --render OUT    draws the bubble into a PNG");
+                PrintHelp();
                 return;
             }
 
@@ -52,8 +56,8 @@ namespace CommandCodeMonitor
                 }
                 catch (ConfigException error)
                 {
-                    MessageBox.Show(error.Message + "\n\nPath: " + configPath,
-                        "CommandCode Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(error.Message + "\n\n" + Lang.T("exe.configPath", configPath),
+                        Lang.T("log.errorTitle"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
@@ -65,6 +69,28 @@ namespace CommandCodeMonitor
 
                 GC.KeepAlive(mutex);
             }
+        }
+
+        /// <summary>
+        /// The language configured in config.json, or null when the file cannot be
+        /// read: an unreadable configuration is reported later, in English, because
+        /// the language it asks for is unknowable by definition.
+        /// </summary>
+        private static string ConfiguredLanguage(string configPath)
+        {
+            try { return MonitorConfig.Load(configPath).Language; }
+            catch (ConfigException) { return null; }
+        }
+
+        /// <summary>The usage text, one language-selected line at a time.</summary>
+        private static void PrintHelp()
+        {
+            Console.WriteLine(Lang.T("exe.helpTitle"));
+            Console.WriteLine(Lang.T("exe.helpStart"));
+            Console.WriteLine(Lang.T("exe.helpSelftest"));
+            Console.WriteLine(Lang.T("exe.helpConfig"));
+            Console.WriteLine(Lang.T("exe.helpLanguage"));
+            Console.WriteLine(Lang.T("exe.helpRender"));
         }
 
         /// <summary>

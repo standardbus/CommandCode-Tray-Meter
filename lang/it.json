@@ -121,6 +121,16 @@
     "noProfiles": "Nessun account configurato."
   },
 
+  "exe": {
+    "helpTitle": "CommandCode Monitor",
+    "helpStart": "  CommandCodeMonitor.exe                 avvia l'icona nella tray",
+    "helpSelftest": "  CommandCodeMonitor.exe --selftest      esegue i controlli offline",
+    "helpConfig": "  CommandCodeMonitor.exe --config PATH   usa un file di configurazione",
+    "helpLanguage": "  CommandCodeMonitor.exe --language CODE en, it o zh; prevale sulla configurazione",
+    "helpRender": "  CommandCodeMonitor.exe --render OUT    disegna la bolla in un PNG",
+    "configPath": "Percorso: {path}"
+  },
+
   "selftest": {
     "title": "CommandCode Monitor - autotest",
     "executable": "  eseguibile : {path}",
