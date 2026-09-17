@@ -4,7 +4,7 @@
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white)](#)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)](#)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-120%20Node%20%2B%2032%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
+[![Tests](https://img.shields.io/badge/tests-130%20Node%20%2B%2046%20Pester%20%2B%2013%20self--test-3fb950)](#tests)
 [![Executable size](https://img.shields.io/badge/executable-124%20KB-4c8eda)](#)
 
 [![Release](https://img.shields.io/github/v/release/standardbus/CommandCode-Tray-Meter?label=release&color=4c8eda&logo=github)](https://github.com/standardbus/CommandCode-Tray-Meter/releases/latest)
@@ -351,14 +351,17 @@ file: the repository carries no asset nobody can regenerate.
 
 ```powershell
 npm test              # Node + Pester suites (tray and terminal meter)
-npm run test:node     # logic, credentials, accounts, languages, CLI (120 tests)
-npm run test:pester   # drawing, thresholds, closing and icon (32 tests)
+npm run test:node     # logic, credentials, accounts, languages, CLI (130 tests)
+npm run test:pester   # drawing, thresholds, closing and icon (46 tests)
 npm run build:exe     # builds the executable and runs its self-test (13 checks)
 ```
 
 The Node suite is the one that runs on Linux and macOS too, which is how
 `bin/ccmeter` is covered: its layout lives in `src/render.mjs` as pure functions,
-so the tests never need a terminal.
+so the tests never need a terminal. It also refuses to pass if a key-shaped
+string appears in a file a commit would carry (`test/secrets.test.mjs`): a
+credential that reaches the repository is compromised even if the commit is
+rewritten afterwards.
 
 To try everything **without credentials**, using a local server that mimics the
 API and increments the values on every request:

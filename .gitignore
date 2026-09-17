@@ -1,14 +1,19 @@
-# Credenziali locali: non committare MAI
+# Local credentials: never commit these
 config.json
+.env
+.env.*
+*.pem
+*.key
+.credentials.yaml
 
-# Stato di runtime
+# Runtime state
 .cache/
 *.log
 
-# Artefatti di build: si rigenerano con scripts/build-exe.ps1
+# Build artefacts: scripts/build-exe.ps1 regenerates them
 CommandCodeMonitor.exe
 csharp/app.ico
 
-# Screenshot con dati privati (desktop, chat, sessione): non pubblicare mai
+# Screenshots holding private data (desktop, chat, session): never publish
 screenshots/exe-bubble.png
 screenshots/exe-bubble-on-screen.png
